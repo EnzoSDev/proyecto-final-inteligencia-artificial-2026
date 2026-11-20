@@ -1,0 +1,15 @@
+# Windows
+desktop.ini
+Thumbs.db
+
+# Python / Jupyter
+__pycache__/
+.ipynb_checkpoints/
+
+# Generados por los notebooks (se regeneran)
+models/
+masks/auto/
+dataset_segmentado/
+dataset_segmentado.zip
+figuras/
+resultados/
