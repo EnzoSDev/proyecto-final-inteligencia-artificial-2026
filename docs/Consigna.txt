@@ -1,0 +1,52 @@
+CONDICIONES GENERALES
+Será en modalidad de entrega de una aplicación, eligiendo un tema aprendido en la segunda parte. Se indica la calificación máxima esperada para los diferentes temas, pero puede aumentarse si se desarrolla más de uno. La calificación será muy exigente.
+
+Se tendrá en cuenta:
+
+La calidad visual de la presentación: debe incluir el problema, qué datos se utilizaron, qué técnica(s) y prueba(s) se realizaron y los resultados obtenidos (errores de clasificación, matriz de confusión, medidas de calidad, error cuadrático o absoluto, lo que corresponda). No importa si los resultados son buenos o no. Se requiere un ANÁLISIS de los resultados (por qué fueron buenos o por qué no lo fueron). NO USEN texto pequeño ni números pequeños ni pongan párrafos de texto. No se puede leer y escuchar al mismo tiempo. La presentación es el soporte a su exposición.
+El lenguaje empleado en la exposición. Este ítem es individual.
+El informe entregado: puede ser la misma presentación, quizá con alguna diapositiva adicional con detalles. También puede ser un notebook de Python con suficiente detalle.
+Uso de LLM: no hay inconvenientes con su uso. Pero si se detectan en las presentaciones cuestiones que no pueden ser explicadas en detalle por los estudiantes, obrarán en contra de una buena calificación. Todo lo que incluyan en las presentaciones debe poder defenderse adecuadamente. Cuidado, las presentaciones hechas automáticamente no tienen personalidad. Destáquense.
+Se puede hacer en grupos de DOS personas. Excepcionalmente, si aumenta el trabajo, puede ser un grupo de TRES personas.
+
+Los trabajos se expondrán los días indicados en el cronograma, con un programa de exposiciones ajustado que se detallará y se asignará por sorteo.
+
+La duración será de aproximadamente 15 minutos de exposición.
+
+POSIBLES TEMAS A ABORDAR
+Algunos posibles temas con la calificación esperada:
+
+Red feedforward para regresión. (7)
+Red feedforward para clasificación. (7)
+Red convolucional para la clasificación de imágenes. (8)
+Comparación Transfer Learning vs. Red ad-hoc. (9)
+Red convolucional para la estimación de una magnitud (regresión). (9)
+Red convolucional para la detección de objetos con bounding boxes. (9)
+Implementación de una GAN para transferencia de estilo o generación de nuevas imágenes. (9)
+Red recursiva para el análisis de algún tipo de señal o secuencia (predicción temporal o clasificación). (10)
+Red para segmentación de imágenes (UNet) (10)
+Análisis de un conjunto de datos con SOM. (6)
+Pruebas con datos secuenciales usando LSTM, GRU o Transformers. (10)
+Sitios de este tipo pueden ser de interés e incluyen datos para trabajar:
+
+I will train your custom yolo object detection model
+
+How to Train YOLO v5 on a Custom Dataset
+
+Train YOLO v3 to detect custom objects
+
+Hands-on Transfer Learning with Keras and the VGG16 Model
+
+How to Classify Star Wars Lego Images using CNN and Transfer Learning
+
+Implementing feedforward neural networks with Keras and TensorFlow
+
+Feed Forward Neural Networks in Python
+
+Modelos preentrenados: HuggingFace
+
+Datos e imágenes médicas: Synapse
+
+Datos Variados: Kaggle, UCI
+
+Datos médicos: Physionet, Ofrecidos en LinkedIn
