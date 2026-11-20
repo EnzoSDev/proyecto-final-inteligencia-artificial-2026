@@ -1,6 +1,6 @@
 # PLAN DE EJECUCIÓN PARA AGENTE — Segmentación (UNet) + Clasificación (CNN) de enfermedades de vid
 
-> Documento para un agente de IA. La versión para humanos está en `README.md` (ya creado; solo completar la sección Resultados en T5). Ejecutar las tareas T1→T6 en orden.
+> Documento para un agente de IA. La versión para humanos está en `README.md` (ya creado; solo completar la sección Resultados en T5). Ejecutar las tareas T1→T6 en orden (T7 es opcional).
 
 ## 0. Contexto y objetivo
 Proyecto final de IA (equipo: Enzo y Tato). Pipeline de 2 etapas sugerido por el profesor:
@@ -55,7 +55,8 @@ utils.py
 01_mascaras.ipynb
 02_unet_segmentacion.ipynb
 03_clasificacion.ipynb
-app.py                        (opcional, T6)
+app/app.py                    (T6, interfaz Gradio local)
+app/ejemplos/                 4 fotos de test, 1 por clase
 splits.csv                    path,clase,label,split   (fuente única de verdad)
 masks/auto/<clase>/<stem>.png       0/255, 256×256
 masks/manual/<clase>/<stem>.png     corregidas a mano (test UNet)
@@ -115,9 +116,28 @@ models/  resultados/  figuras/
 - Completar sección "Resultados" del `README.md` con las métricas reales (tabla A vs B, IoU UNet) y links a figuras.
 - Reportar a los humanos: métricas clave, tiempos de entrenamiento, problemas encontrados.
 
-### T6 — Opcional (solo si los humanos lo piden)
-- `app.py` Gradio: subir imagen → mostrar máscara, recorte, clase+probabilidades y Grad-CAM, con un aviso fijo: "Resultado aproximado. La interpretación y las acciones a seguir corresponden al ingeniero agrónomo." Sin recomendaciones. Ejecutar con `python app.py`.
-- CNN propia desde cero (comparación TL vs ad-hoc, tema de nota 9) sobre B.
+### T6: App de demo (obligatoria; la consigna pide "entrega de una aplicación")
+- **Tecnología:** Gradio (`gr.Blocks`). **Corre solo en local** (`python app/app.py` → `http://localhost:7860`), sin `share=True` y sin publicar en internet. Debe funcionar **sin conexión a internet**.
+- **Estructura:**
+  - `app/app.py`: solo la interfaz. Toda la lógica sale de `utils.py` (`diagnosticar()`, Grad-CAM, segmentación); no duplicar código.
+  - `app/ejemplos/`: 4 imágenes del split **test** (1 por clase), copiadas del dataset.
+  - Modelos: `models/unet.keras`, `models/clf_A.keras` y `models/clf_B.keras`. Se cargan **una sola vez** al iniciar.
+- **Pestaña 1 "Diagnosticar":**
+  - Entrada: `gr.Image` con subida de archivo y cámara, más `gr.Examples` con las 4 fotos.
+  - Salidas: hoja detectada (máscara superpuesta o recorte), `gr.Label` con las probabilidades de las 4 clases (nombres legibles: Sana, Mancha bacteriana, Mildiu, Oídio), y Grad-CAM. Usa la UNet + `clf_B`.
+- **Pestaña 2 "Con fondo vs sin fondo":** la misma foto se pasa por `clf_A` (imagen original) y por la UNet + `clf_B` (hoja recortada). Se muestran lado a lado, cada uno con sus probabilidades y su Grad-CAM, para ver en vivo si el fondo cambia la predicción.
+- **Aviso fijo y visible en ambas pestañas:** "Resultado aproximado. La interpretación y las acciones a seguir corresponden al ingeniero agrónomo." **Sin recomendaciones ni umbrales de decisión.**
+- **Textos de la interfaz:** en español y con letra grande, porque se proyecta en la exposición.
+- **Si faltan modelos:** que la app no se caiga con un error técnico. Debe mostrar un mensaje claro: "Falta models/X.keras: descargalo de la carpeta de Drive".
+- **Compatibilidad:** los modelos se entrenan en Colab y se usan en local con TF 2.21. Verificar que cargan; si las versiones de TF no son compatibles, documentar la solución en avances (guardar solo pesos y reconstruir la arquitectura desde `utils.py`, o igualar versiones).
+- **Aceptación:**
+  - la app arranca en local y las 2 pestañas funcionan con los 4 ejemplos y con una foto externa;
+  - el tiempo de respuesta por foto es menor a ~2 s en CPU;
+  - el aviso es visible;
+  - antes de tener los modelos reales, verificar con los modelos generados con `SMOKE=1`.
+
+### T7: Opcional (solo si los humanos lo piden)
+- CNN propia desde cero sobre B, para comparar transfer learning contra una red ad-hoc (tema de nota 9).
 
 ## 5. Verificación final
 - Agente (local): los 3 notebooks se ejecutan de punta a punta con nbconvert y `SMOKE=1` sin errores.
@@ -125,3 +145,4 @@ models/  resultados/  figuras/
 - `splits.csv`: 2726 filas; splits idénticos usados en A y B.
 - `figuras/` contiene todas las figuras listadas; texto legible.
 - `diagnosticar()` funciona con una imagen por clase y con una imagen fuera del dataset.
+- `python app/app.py` levanta la app en local y sus 2 pestañas funcionan sin internet.
