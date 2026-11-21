@@ -36,7 +36,7 @@ Una **máscara** es una imagen en blanco y negro del mismo tamaño que la foto:
 | CNN  | foto de hoja | una palabra: "mildiu"                  | Sí: el nombre de la carpeta |
 | UNet | foto de hoja | una **máscara** (dónde está la hoja)   | **No: hay que fabricarlas** |
 
-**¿Cómo las fabricamos?** Dibujar 2726 a mano sería eterno. Usamos un truco: el fondo es
+**¿Cómo las fabricamos?** Dibujar más de 2000 a mano sería eterno. Usamos un truco: el fondo es
 blanco o gris y la hoja tiene color (verde, amarilla, marrón). Un programa simple separa
 "lo que tiene color" de "lo que no".
 
@@ -138,14 +138,20 @@ El notebook y la app usan **las mismas funciones** (están en `utils.py`). Así 
 No necesita internet ni placa de video.
 
 ## Los datos
-2726 fotos de hojas (256×256 píxeles):
+El dataset trae 2726 fotos de hojas (256×256 píxeles), pero **333 son copias exactas** de otras.
+Como **preprocesado**, sacamos las copias y nos quedamos con **2393 fotos distintas**:
 
-| Clase              | Fotos |
-|--------------------|------:|
-| Sana               | 1254  |
-| Mildiu             |  966  |
-| Oídio              |  406  |
-| Mancha bacteriana  |  100  |
+| Clase              | En el dataset | Sin copias (las que usamos) |
+|--------------------|--------------:|----------------------------:|
+| Sana               | 1254          |  927                        |
+| Mildiu             |  966          |  966                        |
+| Oídio              |  406          |  400                        |
+| Mancha bacteriana  |  100          |  100                        |
+
+**¿Por qué sacar las copias?** Si una foto está repetida y una copia cae en entrenamiento y la otra
+en prueba, la red "ya la vio" y las métricas salen mejores de lo real. Además, las sanas contaban doble.
+Las detectamos con una "huella" del archivo (MD5): dos archivos idénticos dan la misma huella.
+No borramos nada de `dataset/`: solo las dejamos afuera de la lista (`splits.csv`).
 
 Hay muy pocas de mancha bacteriana: eso es un desafío y lo tenemos en cuenta al entrenar.
 
