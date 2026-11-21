@@ -19,3 +19,7 @@ proyecto-final-ia-2026-venv/
 
 # Registros de TensorBoard (se generan al entrenar)
 logs/
+
+#Dataset para testear la Unet
+stage1_train/
+stage1_test/
