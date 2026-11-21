@@ -10,7 +10,7 @@ Experimento central: comparar clasificador entrenado sobre **A = imágenes origi
 ## 1. Hechos verificados del entorno
 - Raíz: `c:\Users\enzos\OneDrive\Desktop\Archivos\Facultad\Inteligencia Artificial\Proyecto Final`
 - Python 3.11.9, TensorFlow 2.21, scikit-learn, matplotlib, jupyter instalados. **Sin GPU** (CPU). torch NO instalado (no usar). OpenCV/gradio: verificar e instalar vía `requirements.txt`.
-- `dataset/<clase>/` con 4 clases, imágenes 256×256: `hojas_sanas` 1254, `mancha_bacteriana` 100, `mildiu` 966, `oidio` 406 → total **2726**. Extensiones mixtas `.jpg/.JPG/.png` (algunas PNG pueden tener alfa). Existe `dataset/mildiu/desktop.ini` → ignorar.
+- `dataset/<clase>/` con 4 clases, imágenes 256×256: `hojas_sanas` 1254, `mancha_bacteriana` 100, `mildiu` 966, `oidio` 406 → total **2726**. **Preprocesado:** hay 333 copias exactas (MD5), casi todas de `hojas_sanas`; `utils.quitar_duplicados()` deja una por grupo → **2393** fotos (sanas 927, mancha 100, mildiu 966, oidio 400). `splits.csv` tiene esas 2393; las copias siguen en `dataset/` pero no se usan. Extensiones mixtas `.jpg/.JPG/.png` (algunas PNG pueden tener alfa). Existe `dataset/mildiu/desktop.ini` → ignorar.
 - Fondos: mayoría blanco/gris liso con sombras; algunas (sobre todo mancha_bacteriana) con ramas, fondo gris oscuro u hoja pequeña en el encuadre. No hay máscaras.
 - git: rama `main`, 1 commit. `.gitignore` vacío.
 

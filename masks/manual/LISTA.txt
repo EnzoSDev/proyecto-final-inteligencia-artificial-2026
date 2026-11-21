@@ -1,0 +1,50 @@
+dataset/hojas_sanas/Healthy Leaves_943.jpg
+dataset/hojas_sanas/Healthy Leaves_359.jpg
+dataset/hojas_sanas/Healthy Leaves_1202.jpg
+dataset/hojas_sanas/Healthy Leaves_657.jpg
+dataset/hojas_sanas/Healthy Leaves_211.jpg
+dataset/hojas_sanas/Healthy Leaves_1108.jpg
+dataset/hojas_sanas/Healthy Leaves_28.jpg
+dataset/hojas_sanas/Healthy Leaves_366.jpg
+dataset/hojas_sanas/Healthy Leaves_812.jpg
+dataset/hojas_sanas/Healthy Leaves_293.jpg
+dataset/hojas_sanas/Healthy Leaves_64.jpg
+dataset/hojas_sanas/Healthy Leaves_84.jpg
+dataset/hojas_sanas/Healthy Leaves_457.jpg
+dataset/mancha_bacteriana/Bacterial Leaf Spot_68.JPG
+dataset/mancha_bacteriana/Bacterial Leaf Spot_76.jpg
+dataset/mancha_bacteriana/Bacterial Leaf Spot_11.jpg
+dataset/mancha_bacteriana/Bacterial Leaf Spot_90.jpg
+dataset/mancha_bacteriana/Bacterial Leaf Spot_56.jpg
+dataset/mancha_bacteriana/Bacterial Leaf Spot_61.jpg
+dataset/mancha_bacteriana/Bacterial Leaf Spot_3.png
+dataset/mancha_bacteriana/Bacterial Leaf Spot_13.JPG
+dataset/mancha_bacteriana/Bacterial Leaf Spot_97.png
+dataset/mancha_bacteriana/Bacterial Leaf Spot_44.jpg
+dataset/mancha_bacteriana/Bacterial Leaf Spot_6.JPG
+dataset/mancha_bacteriana/Bacterial Leaf Spot_71.jpg
+dataset/mildiu/Downy Mildew_490.jpg
+dataset/mildiu/Downy Mildew_949.jpg
+dataset/mildiu/Downy Mildew_239.jpg
+dataset/mildiu/Downy Mildew_218.jpg
+dataset/mildiu/Downy Mildew_336.jpg
+dataset/mildiu/Downy Mildew_813.jpg
+dataset/mildiu/Downy Mildew_838.jpg
+dataset/mildiu/Downy Mildew_725.jpg
+dataset/mildiu/Downy Mildew_594.jpg
+dataset/mildiu/Downy Mildew_205.jpg
+dataset/mildiu/Downy Mildew_178.jpg
+dataset/mildiu/Downy Mildew_422.JPG
+dataset/mildiu/Downy Mildew_852.jpg
+dataset/oidio/Powdery Mildew_100.jpg
+dataset/oidio/Powdery Mildew_155.jpg
+dataset/oidio/Powdery Mildew_340.jpg
+dataset/oidio/Powdery Mildew_372.JPG
+dataset/oidio/Powdery Mildew_198.jpg
+dataset/oidio/Powdery Mildew_45.jpg
+dataset/oidio/Powdery Mildew_297.jpg
+dataset/oidio/Powdery Mildew_38.jpg
+dataset/oidio/Powdery Mildew_196.jpg
+dataset/oidio/Powdery Mildew_8.png
+dataset/oidio/Powdery Mildew_374.JPG
+dataset/oidio/Powdery Mildew_395.png
