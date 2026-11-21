@@ -1,0 +1,27 @@
+# Librerías del proyecto. Instalar con:  pip install -r requirements.txt
+# TensorFlow va sin versión fija: Colab trae la suya y no hay que reinstalarla.
+
+# Redes neuronales (UNet y MobileNetV2)
+tensorflow
+tensorboard
+
+# Datos e imágenes
+numpy
+pandas
+pillow
+opencv-python
+scikit-image
+
+# Métricas y división de datos
+scikit-learn
+
+# Gráficos
+matplotlib
+
+# Notebooks
+ipykernel
+nbformat
+tqdm
+
+# Aplicación (T6)
+gradio

@@ -37,3 +37,4 @@ Sirve para no perder el hilo entre sesiones y para poder explicar cada decisión
 | Fecha | Resumen |
 |-------|---------|
 | [2026-11-20](2026-11-20.md) | Definición del proyecto, plan, README y flujo con Colab |
+| [2026-11-21](2026-11-21.md) | Entorno virtual, `requirements.txt` y UNet básica que usamos como base |

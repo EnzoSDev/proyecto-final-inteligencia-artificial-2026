@@ -10,8 +10,8 @@ Proyecto final de Inteligencia Artificial de dos estudiantes, **Enzo** y **Tato*
 Hay 4 clases: `hojas_sanas`, `mancha_bacteriana`, `mildiu` y `oidio`. Se entrega en notebooks de Jupyter y se expone oralmente: los estudiantes **tienen que poder explicar todo** lo que el agente produzca.
 
 ## 1. Qué leer, en este orden
-1. **`avances/README.md`** y **el archivo más reciente de `avances/`** (`AAAA-MM-DD.md`). Ahí está el **estado actual**: qué se hizo, qué se decidió y qué quedó **pendiente**. La próxima tarea sale de la sección "Pendiente" del último registro.
-2. **`docs/PLAN_AGENTE.md`**: el plan técnico completo, con las tareas T1–T7, rutas, interfaces, criterios de aceptación y paradas ⛔. **Es la fuente de verdad técnica.**
+1. **`avances/README.md`** y **el archivo más reciente de `avances/`** (`AAAA-MM-DD.md`). Ahí está el **estado actual**: qué se hizo, qué se decidió y qué quedó **pendiente**.
+2. **`docs/PLAN_AGENTE.md`**: las reglas técnicas (rutas, tamaños, splits, Colab, estructura de carpetas). **No tiene lista de tareas.**
 3. **`README.md`**: la explicación para humanos. Leelo para entender el porqué de las decisiones.
 4. **`docs/Consigna.txt`**: la consigna de la materia y los criterios de evaluación.
 5. El paper del dataset (`docs/*.pdf`) solo si hace falta.
@@ -20,10 +20,10 @@ No empieces a escribir código sin haber leído 1 y 2.
 
 ## 2. Flujo de trabajo en cada sesión
 1. Hacé `git pull`, porque el otro integrante pudo haber subido cambios.
-2. Leé lo indicado en la sección 1 e identificá la tarea pendiente.
-3. **Decile al humano qué tarea vas a hacer y confirmá** antes de arrancar.
-4. Ejecutá la tarea según `docs/PLAN_AGENTE.md`.
-5. Verificala con los criterios de aceptación del plan. En local, los notebooks se prueban con `SMOKE=1`.
+2. Leé lo indicado en la sección 1.
+3. **El humano dice qué se hace en cada sesión.** No elijas ni empieces tareas por tu cuenta; si no está claro, preguntá.
+4. Hacé lo pedido respetando las reglas técnicas de `docs/PLAN_AGENTE.md`.
+5. Verificá que funciona. En local, los notebooks se prueban con `SMOKE=1`.
 6. **Registrá en `avances/AAAA-MM-DD.md`** lo que hiciste (ver sección 4).
 7. Informá al humano: qué hiciste, resultados, problemas y lo próximo. **Preguntá antes de hacer commit o push.**
 
@@ -33,7 +33,6 @@ No empieces a escribir código sin haber leído 1 y 2.
 - **El sistema NO da recomendaciones** ("llevar al laboratorio", "aplicar tratamiento", umbrales de decisión, etc.). Solo informa la clase y las probabilidades. **Las decisiones corresponden al ingeniero agrónomo.**
 - **Siempre aclarar que el modelo es una aproximación:** las manchas pueden tener otras causas (nutrientes, falta de agua, sol, insectos, químicos, otras enfermedades) y la red siempre elige una de sus 4 clases.
 - **NO inventar números ni conclusiones.** Las métricas y el análisis salen solo de resultados realmente obtenidos.
-- **Respetar las paradas ⛔ del plan:** detenerse y pedir la acción humana indicada.
 - **NO hacer commit ni push sin que el humano lo pida.**
 - **Registrar todo en `avances/`**, incluidos los errores y los resultados malos.
 - Todo texto para humanos (markdown de notebooks, README, avances, commits) va **en español**, simple y explicable en una exposición.

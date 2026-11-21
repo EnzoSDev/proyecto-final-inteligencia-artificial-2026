@@ -13,3 +13,9 @@ dataset_segmentado/
 dataset_segmentado.zip
 figuras/
 resultados/
+
+#Entorno virtual
+proyecto-final-ia-2026-venv/
+
+# Registros de TensorBoard (se generan al entrenar)
+logs/
