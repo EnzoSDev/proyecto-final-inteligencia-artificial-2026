@@ -20,6 +20,7 @@ dataset/mancha_bacteriana/Bacterial Leaf Spot_93.png
 dataset/mancha_bacteriana/Bacterial Leaf Spot_94.png
 dataset/mancha_bacteriana/Bacterial Leaf Spot_95.png
 dataset/mancha_bacteriana/Bacterial Leaf Spot_96.png
+dataset/mancha_bacteriana/Bacterial Leaf Spot_97.png
 dataset/mancha_bacteriana/Bacterial Leaf Spot_98.png
 dataset/mancha_bacteriana/Bacterial Leaf Spot_99.png
 dataset/mancha_bacteriana/Bacterial Leaf Spot_100.png
