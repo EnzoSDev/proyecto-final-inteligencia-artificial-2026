@@ -38,3 +38,4 @@ Sirve para no perder el hilo entre sesiones y para poder explicar cada decisión
 |-------|---------|
 | [2026-11-20](2026-11-20.md) | Definición del proyecto, plan, README y flujo con Colab |
 | [2026-11-21](2026-11-21.md) | Entorno virtual, `requirements.txt`, UNet base, fase 1 y `splits.csv` (con duplicados detectados) |
+| [2026-11-22](2026-11-22.md) | Revisión de máscaras, decisión "una hoja por foto" y hallazgos: fondo gris y casi duplicados entre splits |

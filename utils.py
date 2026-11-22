@@ -24,6 +24,7 @@ BATCH = 32
 
 ROOT = Path(__file__).resolve().parent   # carpeta del proyecto (donde está utils.py)
 RUTA_SPLITS = ROOT / 'splits.csv'
+RUTA_COPIAS = ROOT / 'casi_duplicados.csv'
 
 
 # ---------------------------------------------------------------------------
@@ -104,6 +105,25 @@ def crear_splits(df, guardar=True):
 def cargar_splits():
     """Lee splits.csv (la división única del proyecto)."""
     return pd.read_csv(RUTA_SPLITS)
+
+
+def quitar_copias_de_test(df):
+    """Devuelve solo train y val, sin las fotos que son copia de alguna de test.
+
+    casi_duplicados.csv dice qué fotos son copias entre sí (mismo 'grupo').
+    Si un grupo tiene una foto en test, sus otras fotos no se usan para entrenar.
+    No modifica splits.csv ni dataset/.
+    """
+    copias = pd.read_csv(RUTA_COPIAS)
+    grupos_test = copias.loc[copias['split'] == 'test', 'grupo']
+    prohibidas = copias.loc[copias['grupo'].isin(grupos_test), 'path']
+    return df[(df['split'] != 'test') & ~df['path'].isin(prohibidas)].reset_index(drop=True)
+
+
+def cargar_rechazadas():
+    """Lee masks/rechazadas.txt: fotos con la máscara mal (no entrenan la UNet)."""
+    texto = (ROOT / 'masks' / 'rechazadas.txt').read_text(encoding='utf-8')
+    return [linea.strip() for linea in texto.splitlines() if linea.strip()]
 
 
 # ---------------------------------------------------------------------------

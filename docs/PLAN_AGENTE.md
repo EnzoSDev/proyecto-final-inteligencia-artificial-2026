@@ -24,6 +24,18 @@ Experimento central: comparar clasificador entrenado sobre **A = imágenes origi
 - Figuras: `utils.set_estilo()` (font.size ≥ 16, títulos ≥ 20) y `utils.guardar_figura(fig, nombre)` → `figuras/<nombre>.png` dpi 150.
 - Ejecutar notebooks con `jupyter nbconvert --to notebook --execute --inplace <nb> --ExecutePreprocessor.timeout=-1`. Tareas largas: ejecutar en background.
 
+## 2.1. Una hoja por foto (decisión 2026-11-22)
+- El sistema asume **una sola hoja principal por foto** (la salida es una clase por imagen). La app (Gradio) debe indicarlo al pedir la foto. No segmentar varias hojas por separado.
+- `masks/rechazadas.txt`: se rechaza **por la máscara, no por la foto** (p. ej. máscaras que unen varias hojas o pierden parte de la hoja). Fondo complejo con buena máscara → se conserva.
+- Las rechazadas se excluyen **solo** del entrenamiento de la UNet (train/val); siguen en `splits.csv` para los clasificadores. Antes de entrenar, comprobar que todas las rutas de `rechazadas.txt` existan en `splits.csv`.
+
+## 2.2. Casi duplicados y 5-fold por grupos (decisión 2026-11-22)
+- `splits.csv` conserva 324 copias recomprimidas o con otro fondo que el MD5 no detecta; 79 de 359 fotos de test tienen copia en train. Lista: `casi_duplicados.csv` (raíz; columnas `grupo,clase,path,split`). **No modificar `splits.csv`.**
+- Grupo = columna `grupo`; cada foto que no figura en la lista es su propio grupo.
+- **Clasificadores A y B:** test fijo y afuera. De train+val, excluir las fotos cuyo grupo tenga alguna foto en test (100 → quedan 1934). Sobre el resto, `StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=SEED)` con los mismos folds para A y B; reportar promedio ± desvío. Evaluar al final en test, entrenando sin esas 100 fotos.
+- Verificar con un assert que no haya grupos compartidos entre entrenamiento, validación y test.
+- UNet: también excluye esas 100 fotos. Entrena con `quitar_copias_de_test(cargar_splits())` menos `cargar_rechazadas()` (ambas en `utils.py`).
+
 ## 2a. Registro de avances (obligatorio, todo el proyecto)
 - Al terminar cada tarea, cada cambio de plan y cada decisión, registrar en `avances/AAAA-MM-DD.md` (fecha del día). Si existe, **agregar** al final; nunca borrar entradas previas.
 - Usar la plantilla de `avances/README.md` (qué se hizo, decisiones y por qué, archivos, resultados con números reales, problemas, pendiente) y actualizar su tabla **Índice**.

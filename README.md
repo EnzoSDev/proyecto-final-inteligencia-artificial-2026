@@ -49,7 +49,8 @@ La UNet aprende **la forma de una hoja de vid**, así que funciona donde el truc
 
 **Lo que tenemos que hacer nosotros:**
 1. **Revisar:** mirar grillas con las máscaras automáticas y anotar las que salieron mal,
-   para que la UNet no aprenda errores.
+   para que la UNet no aprenda errores. Se mira **la máscara, no la foto**: si hay ramas pero el
+   contorno rodea bien la hoja, sirve.
 2. **Corregir unas 50 a mano** (con Paint o GIMP, pintando blanco y negro). Esas 50 son el
    "examen" de la UNet: comparamos su recorte con el correcto y sale un puntaje llamado
    **IoU** (100% = recorte perfecto).
@@ -153,6 +154,19 @@ en prueba, la red "ya la vio" y las métricas salen mejores de lo real. Además,
 Las detectamos con una "huella" del archivo (MD5): dos archivos idénticos dan la misma huella.
 No borramos nada de `dataset/`: solo las dejamos afuera de la lista (`splits.csv`).
 
+**Copias que el MD5 no detecta.** Después de dividir los datos encontramos **324 copias más**, vueltas a
+comprimir o con el fondo cambiado (310 son de sanas). Se ven iguales, pero el archivo es distinto. Con la
+división tal cual, **79 de las 359 fotos de test (22%) tienen una copia en train** y las métricas saldrían
+mejores de lo real. **Cómo lo resolvemos al entrenar la CNN:**
+1. El test queda fijo y sacamos de train y val las 100 fotos que son copia de alguna de test.
+2. Con las 1934 restantes hacemos **k-fold por grupos** (5 vueltas): una foto y sus copias van siempre
+   juntas, así que la red nunca se prueba con una copia detectada de algo que ya vio.
+
+La UNet tampoco entrena con esas 100 copias.
+
+Un k-fold común no alcanza: repartiría las copias en vueltas distintas. Como limitación, no agrupamos
+distintas tomas de una misma hoja (por ejemplo, frente y dorso).
+
 Hay muy pocas de mancha bacteriana: eso es un desafío y lo tenemos en cuenta al entrenar.
 
 ## ⚠️ Importante: es una aproximación, no un diagnóstico definitivo
@@ -166,6 +180,9 @@ la causa real sea otra.
 Por eso el modelo **no da recomendaciones**: solo informa la clase más probable y la
 probabilidad de cada una. **Qué hacer con ese resultado** (por ejemplo, enviar la hoja al
 laboratorio) **lo decide el ingeniero agrónomo**.
+
+**Una hoja por foto:** el sistema está pensado para fotos con **una sola hoja principal**. Como da
+una sola clase por foto, si hay varias hojas no puede decir cuál está sana y cuál no.
 
 ## Estructura del proyecto
 | Archivo / carpeta            | Qué es |
