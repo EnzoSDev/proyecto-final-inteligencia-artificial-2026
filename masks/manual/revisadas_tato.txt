@@ -1,0 +1,25 @@
+dataset/hojas_sanas/Healthy Leaves_359.jpg
+dataset/hojas_sanas/Healthy Leaves_657.jpg
+dataset/hojas_sanas/Healthy Leaves_1108.jpg
+dataset/hojas_sanas/Healthy Leaves_366.jpg
+dataset/hojas_sanas/Healthy Leaves_293.jpg
+dataset/hojas_sanas/Healthy Leaves_84.jpg
+dataset/mancha_bacteriana/Bacterial Leaf Spot_68.JPG
+dataset/mancha_bacteriana/Bacterial Leaf Spot_11.jpg
+dataset/mancha_bacteriana/Bacterial Leaf Spot_56.jpg
+dataset/mancha_bacteriana/Bacterial Leaf Spot_3.png
+dataset/mancha_bacteriana/Bacterial Leaf Spot_97.png
+dataset/mancha_bacteriana/Bacterial Leaf Spot_6.JPG
+dataset/mildiu/Downy Mildew_490.jpg
+dataset/mildiu/Downy Mildew_239.jpg
+dataset/mildiu/Downy Mildew_336.jpg
+dataset/mildiu/Downy Mildew_838.jpg
+dataset/mildiu/Downy Mildew_594.jpg
+dataset/mildiu/Downy Mildew_178.jpg
+dataset/mildiu/Downy Mildew_852.jpg
+dataset/oidio/Powdery Mildew_155.jpg
+dataset/oidio/Powdery Mildew_372.JPG
+dataset/oidio/Powdery Mildew_45.jpg
+dataset/oidio/Powdery Mildew_38.jpg
+dataset/oidio/Powdery Mildew_8.png
+dataset/oidio/Powdery Mildew_395.png
