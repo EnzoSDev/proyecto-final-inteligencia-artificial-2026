@@ -188,11 +188,12 @@ una sola clase por foto, si hay varias hojas no puede decir cuál está sana y c
 | Archivo / carpeta            | Qué es |
 |------------------------------|--------|
 | `01_mascaras.ipynb`          | Crea las máscaras (hoja vs. fondo) para entrenar la UNet |
-| `02_unet_segmentacion.ipynb` | Entrena la UNet y recorta todas las hojas |
+| `02_unet_segmentacion.ipynb` | Entrena la UNet y la evalúa con las 50 máscaras a mano (se genera con `scripts/crear_nb_02_unet.py`) |
 | `03_clasificacion.ipynb`     | Entrena la CNN, compara con/sin fondo y muestra resultados |
 | `utils.py`                   | Funciones compartidas |
 | `app/`                       | La aplicación de demo (Gradio) |
 | `dataset/`                   | Fotos originales (no se modifican) |
+| `dataset_unet/`              | Fotos y máscaras juntas para entrenar la UNet (se arma con `scripts/armar_dataset_unet.py`) |
 | `figuras/`                   | Gráficos para la presentación |
 | `docs/`                      | Consigna, paper del dataset y plan para el agente |
 | `avances/`                   | Registro de todo lo que hacemos y cambiamos, día por día |

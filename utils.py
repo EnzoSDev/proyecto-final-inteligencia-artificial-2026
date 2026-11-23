@@ -3,6 +3,8 @@
 Los notebooks lo importan con:  import utils
 """
 import hashlib
+import shutil
+import sys
 from pathlib import Path
 
 import cv2
@@ -25,6 +27,41 @@ BATCH = 32
 ROOT = Path(__file__).resolve().parent   # carpeta del proyecto (donde está utils.py)
 RUTA_SPLITS = ROOT / 'splits.csv'
 RUTA_COPIAS = ROOT / 'casi_duplicados.csv'
+
+
+# ---------------------------------------------------------------------------
+# Entorno: compu o Google Colab
+# ---------------------------------------------------------------------------
+def configurar_entorno(carpetas=('dataset',)):
+    """Dice dónde están los datos y lo prepara si estamos en Colab.
+
+    - En la compu: ROOT y DATA son la carpeta del proyecto.
+    - En Colab: ROOT es la carpeta del proyecto en Drive (ahí se guardan modelos y
+      figuras) y DATA es /content. Cada carpeta de `carpetas` se copia a /content,
+      porque leer miles de archivos chicos desde Drive es muy lento. Si existe
+      <carpeta>.zip en Drive, se descomprime (es mucho más rápido que copiar).
+    """
+    en_colab = 'google.colab' in sys.modules
+    data = Path('/content') if en_colab else ROOT
+    if en_colab:
+        for carpeta in carpetas:
+            destino = data / carpeta
+            if destino.exists():
+                continue
+            if (ROOT / f'{carpeta}.zip').exists():
+                print('Descomprimiendo', carpeta + '.zip ...')
+                shutil.unpack_archive(ROOT / f'{carpeta}.zip', destino)
+            elif (ROOT / carpeta).exists():
+                print('Copiando', carpeta, '(puede tardar) ...')
+                shutil.copytree(ROOT / carpeta, destino)
+            else:
+                print('ATENCIÓN: no encuentro', carpeta, 'ni', carpeta + '.zip', 'en', ROOT)
+
+    import tensorflow as tf
+    print('Entorno:', 'Google Colab' if en_colab else 'compu local')
+    print('GPU:', tf.config.list_physical_devices('GPU') or 'no hay (CPU)')
+    print('TensorFlow:', tf.__version__)
+    return {'ROOT': ROOT, 'DATA': data, 'EN_COLAB': en_colab}
 
 
 # ---------------------------------------------------------------------------

@@ -72,6 +72,7 @@ masks/auto/<clase>/<stem>.png       0/255, 256×256
 masks/manual/<clase>/<stem>.png     corregidas a mano (test UNet)
 masks/rechazadas.txt                una ruta relativa por línea
 dataset_segmentado/<clase>/<stem>.png
+dataset_unet/{train,val,test}/{images,masks}/<stem>.png   160×160, generado por scripts/armar_dataset_unet.py (no va a git); también test/masks_auto/ y dataset_unet.zip (para Colab)
 models/  resultados/  figuras/
 ```
 `.gitignore` agregar: `models/ masks/auto/ dataset_segmentado/ figuras/ resultados/ .ipynb_checkpoints/ __pycache__/` (NO ignorar `masks/manual/` ni `masks/rechazadas.txt`, son trabajo humano).

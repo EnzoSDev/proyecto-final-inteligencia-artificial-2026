@@ -10,6 +10,8 @@ __pycache__/
 models/
 masks/auto/
 dataset_segmentado/
+dataset_unet/
+dataset_unet.zip
 dataset_segmentado.zip
 figuras/
 resultados/
