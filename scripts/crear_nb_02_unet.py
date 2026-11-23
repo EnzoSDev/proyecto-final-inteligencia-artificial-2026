@@ -176,7 +176,7 @@ datos_val = tf.data.Dataset.from_tensor_slices((X_val, Y_val)).batch(BATCH)
 
 md("""
 ## 5. La UNet
-Es la misma arquitectura del notebook base (`app/Unet.ipynb`), la versión **con Dropout**:
+Es la misma arquitectura del notebook base (`recursos/unet_pruebas_enzo.ipynb`), la versión **con Dropout**:
 
 - **Camino de bajada (codificador):** convoluciones + *max pooling*. La imagen se achica
   (160 → 80 → 40 → 20 → 10) y la red aprende *qué* hay.

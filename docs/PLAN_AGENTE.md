@@ -67,6 +67,7 @@ utils.py
 03_clasificacion.ipynb
 app/app.py                    (interfaz Gradio local)
 app/ejemplos/                 4 fotos de test, 1 por clase
+recursos/                     notebooks de referencia (unet_original.ipynb, unet_pruebas_enzo.ipynb); no son parte del informe
 splits.csv                    path,clase,label,split   (fuente única de verdad)
 masks/auto/<clase>/<stem>.png       0/255, 256×256
 masks/manual/<clase>/<stem>.png     corregidas a mano (test UNet)

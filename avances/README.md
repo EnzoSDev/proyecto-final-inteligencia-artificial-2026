@@ -39,4 +39,4 @@ Sirve para no perder el hilo entre sesiones y para poder explicar cada decisión
 | [2026-11-20](2026-11-20.md) | Definición del proyecto, plan, README y flujo con Colab |
 | [2026-11-21](2026-11-21.md) | Entorno virtual, `requirements.txt`, UNet base, fase 1 y `splits.csv` (con duplicados detectados) |
 | [2026-11-22](2026-11-22.md) | Revisión de máscaras, decisión "una hoja por foto", casi duplicados y corrección manual de 25/50 máscaras (Tato) |
-| [2026-11-23](2026-11-23.md) | Revisión de las 50 máscaras corregidas a mano: paso 4 terminado |
+| [2026-11-23](2026-11-23.md) | Paso 4 terminado (50 máscaras a mano); paso 5: `dataset_unet/`, notebook 02 de la UNet y orden del repo |

@@ -185,19 +185,33 @@ laboratorio) **lo decide el ingeniero agrónomo**.
 una sola clase por foto, si hay varias hojas no puede decir cuál está sana y cuál no.
 
 ## Estructura del proyecto
-| Archivo / carpeta            | Qué es |
-|------------------------------|--------|
-| `01_mascaras.ipynb`          | Crea las máscaras (hoja vs. fondo) para entrenar la UNet |
-| `02_unet_segmentacion.ipynb` | Entrena la UNet y la evalúa con las 50 máscaras a mano (se genera con `scripts/crear_nb_02_unet.py`) |
-| `03_clasificacion.ipynb`     | Entrena la CNN, compara con/sin fondo y muestra resultados |
-| `utils.py`                   | Funciones compartidas |
-| `app/`                       | La aplicación de demo (Gradio) |
-| `dataset/`                   | Fotos originales (no se modifican) |
-| `dataset_unet/`              | Fotos y máscaras juntas para entrenar la UNet (se arma con `scripts/armar_dataset_unet.py`) |
-| `figuras/`                   | Gráficos para la presentación |
-| `docs/`                      | Consigna, paper del dataset y plan para el agente |
-| `avances/`                   | Registro de todo lo que hacemos y cambiamos, día por día |
-| `AGENTS.md` / `CLAUDE.md`    | Instrucciones para agentes de IA (qué leer, reglas, flujo) |
+**Los notebooks (el informe), en orden:**
+
+| Archivo | Qué hace |
+|---|---|
+| `01_mascaras.ipynb` | Crea las máscaras automáticas (hoja vs. fondo) |
+| `02_unet_segmentacion.ipynb` | Entrena la UNet y la evalúa con las 50 máscaras a mano |
+| `03_clasificacion.ipynb` | Entrena la CNN, compara con y sin fondo y muestra resultados *(pendiente)* |
+
+Los notebooks están en la raíz para que `import utils` funcione igual en la compu y en Colab.
+
+**Carpetas:**
+
+| Carpeta | Qué hay | ¿En git? |
+|---|---|---|
+| `dataset/` | Fotos originales (**no se modifican**) | Sí |
+| `masks/` | `rechazadas.txt` y `manual/` (las 50 corregidas a mano); `auto/` se genera | Solo lo manual |
+| `scripts/` | Generadores de notebooks y herramientas (armar `dataset_unet/`, corregir máscaras) | Sí |
+| `recursos/` | Notebooks de referencia: la UNet original y las pruebas de Enzo | Sí |
+| `app/` | La aplicación de demo (Gradio) *(pendiente)* | Sí |
+| `docs/` | Consigna, papers y plan para el agente | Sí |
+| `avances/` | Registro de todo lo que hacemos, día por día | Sí |
+| `dataset_unet/` | Fotos y máscaras listas para la UNet (`python scripts/armar_dataset_unet.py`) | No, se genera |
+| `figuras/`, `models/`, `resultados/` | Salidas de los notebooks | No, se generan |
+
+**Archivos sueltos:** `utils.py` (funciones compartidas), `splits.csv` (división única train/val/test),
+`casi_duplicados.csv` (grupos de fotos repetidas), `requirements.txt` (librerías) y
+`AGENTS.md` / `CLAUDE.md` (instrucciones para agentes de IA).
 
 **¿Vas a trabajar con un agente de IA (Claude Code, Codex, Cursor...)?** No hace falta
 explicarle nada: lee solo `AGENTS.md`, que le dice qué leer, qué reglas seguir y cómo
