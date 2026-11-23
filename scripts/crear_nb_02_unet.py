@@ -64,7 +64,8 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 from skimage.io import imread
-from tensorflow.keras.layers import (Input, Rescaling, Conv2D, Dropout, MaxPooling2D,
+from tensorflow.keras.layers import (Input, Rescaling, Conv2D, BatchNormalization,
+                                     Activation, Dropout, MaxPooling2D,
                                      Conv2DTranspose, concatenate)
 from tensorflow.keras.models import Model
 
@@ -87,9 +88,11 @@ SMOKE = os.environ.get('SMOKE') == '1'
 REENTRENAR = False
 
 EPOCAS = 1 if SMOKE else 50
-PACIENCIA = 6            # épocas sin mejorar en validación antes de cortar
+PACIENCIA = 8            # épocas sin mejorar en validación antes de cortar
+LR_INICIAL = 5e-4        # learning rate inicial (se reduce si val_loss se estanca)
 BATCH = 16
 LADO = utils.IMG_SEG     # 160
+FACTOR_MANCHA = 4        # repetir mancha_bacteriana solo en train (tiene solo 60 fotos)
 
 CARPETA = DATA / 'dataset_unet'
 NOMBRE = 'unet_smoke' if SMOKE else 'unet'          # la prueba no pisa el modelo real
@@ -129,7 +132,7 @@ def cargar(split, carpeta_mascaras='masks'):
     return X, Y, nombres
 
 
-X_train, Y_train, _ = cargar('train')
+X_train, Y_train, nombres_train = cargar('train')
 X_val, Y_val, _ = cargar('val')
 X_test, Y_test, nombres_test = cargar('test')                    # NO se usa para entrenar
 _, Y_test_auto, _ = cargar('test', 'masks_auto')                # el truco, para comparar
@@ -152,96 +155,118 @@ plt.show()
 """)
 
 md("""
-## 4. Aumentación de datos
-Cada vez que la red ve una foto, la **espejamos al azar** (izquierda-derecha y arriba-abajo),
-y a la máscara le hacemos **lo mismo**. Una hoja espejada sigue siendo una hoja, así que es
-como tener más fotos distintas sin conseguir fotos nuevas. Solo se hace en train.
+## 4. Balanceo y aumentación de datos (solo en train)
+1. **Sobremuestreo de `mancha_bacteriana`:** esta clase tiene solo 60 fotos en train (3,9%)
+   y concentra los fondos grises y hojas chicas. La repetimos `FACTOR_MANCHA` veces **solo en
+   train** (nunca en val ni en test).
+2. **Aumentación al azar en cada época:**
+   - **Espejado** horizontal/vertical y **rotación de 90°** (0°, 90°, 180°, 270°) aplicados
+     por igual a foto y máscara.
+   - **Cambios suaves de brillo, contraste y saturación** aplicados **solo a la foto**, para
+     que la red no dependa únicamente de que la hoja sea verde intenso (ayuda con hojas
+     pálidas o con manchas blanquecinas de mildiu/oídio).
 """)
 
 code("""
-def espejar(foto, mascara):
-    if tf.random.uniform(()) > 0.5:
-        foto, mascara = tf.image.flip_left_right(foto), tf.image.flip_left_right(mascara)
-    if tf.random.uniform(()) > 0.5:
-        foto, mascara = tf.image.flip_up_down(foto), tf.image.flip_up_down(mascara)
+clase_de = dict(zip(lista['archivo'], lista['clase']))
+idx_mancha = [i for i, n in enumerate(nombres_train) if clase_de[n] == 'mancha_bacteriana']
+idx_extra = idx_mancha * (FACTOR_MANCHA - 1)
+X_train_bal = np.concatenate([X_train, X_train[idx_extra]], axis=0) if idx_extra else X_train
+Y_train_bal = np.concatenate([Y_train, Y_train[idx_extra]], axis=0) if idx_extra else Y_train
+assert len(X_train_bal) == len(Y_train_bal)
+print(f'Train balanceado: {len(X_train)} -> {len(X_train_bal)} fotos '
+      f'(+{len(idx_extra)} copias de mancha_bacteriana)')
+
+
+def aumentar(foto, mascara):
+    flip_h = tf.random.uniform(()) > 0.5
+    foto = tf.cond(flip_h, lambda: tf.image.flip_left_right(foto), lambda: foto)
+    mascara = tf.cond(flip_h, lambda: tf.image.flip_left_right(mascara), lambda: mascara)
+    flip_v = tf.random.uniform(()) > 0.5
+    foto = tf.cond(flip_v, lambda: tf.image.flip_up_down(foto), lambda: foto)
+    mascara = tf.cond(flip_v, lambda: tf.image.flip_up_down(mascara), lambda: mascara)
+    k = tf.random.uniform((), minval=0, maxval=4, dtype=tf.int32)
+    foto = tf.image.rot90(foto, k)
+    mascara = tf.image.rot90(mascara, k)
+
+    # Cambios suaves de luz y color solo en la foto (la máscara no cambia)
+    foto = tf.cast(foto, tf.float32) / 255.0
+    foto = tf.image.random_brightness(foto, max_delta=0.15)
+    foto = tf.image.random_contrast(foto, lower=0.85, upper=1.15)
+    foto = tf.image.random_saturation(foto, lower=0.75, upper=1.25)
+    foto = tf.clip_by_value(foto, 0.0, 1.0) * 255.0
     return foto, mascara
 
 
-datos_train = (tf.data.Dataset.from_tensor_slices((X_train, Y_train))
-               .shuffle(len(X_train), seed=utils.SEED)
-               .map(espejar, num_parallel_calls=tf.data.AUTOTUNE)
+datos_train = (tf.data.Dataset.from_tensor_slices((X_train_bal, Y_train_bal))
+               .shuffle(len(X_train_bal), seed=utils.SEED)
+               .map(aumentar, num_parallel_calls=tf.data.AUTOTUNE)
                .batch(BATCH).prefetch(tf.data.AUTOTUNE))
 datos_val = tf.data.Dataset.from_tensor_slices((X_val, Y_val)).batch(BATCH)
 """)
 
 md("""
 ## 5. La UNet
-Es la misma arquitectura del notebook base (`recursos/unet_pruebas_enzo.ipynb`), la versión **con Dropout**:
+Partimos de la arquitectura del notebook base (`recursos/unet_pruebas_enzo.ipynb`) y le
+aplicamos dos mejoras clave tras el primer entrenamiento (que había mostrado un salto brusco
+en época 6 con 31M de parámetros sin normalizar):
 
-- **Camino de bajada (codificador):** convoluciones + *max pooling*. La imagen se achica
-  (160 → 80 → 40 → 20 → 10) y la red aprende *qué* hay.
-- **Camino de subida (decodificador):** convoluciones transpuestas que la agrandan de nuevo
-  hasta 160×160, para decir *dónde* está.
-- **Conexiones de salto (`concatenate`):** le pasan a la subida los detalles finos de la
-  bajada, para que los bordes de la hoja salgan precisos.
-- **Dropout:** apaga neuronas al azar mientras entrena, para que no memorice las fotos.
+- **Filtros reducidos (`32 → 64 → 128 → 256 → 512`):** ~7,8 millones de parámetros en vez de
+  31 millones. Es 4 veces más liviana y sobreajusta menos con ~1.500 fotos.
+- **BatchNormalization + inicialización `he_normal`** en cada bloque convolucional: estabiliza
+  el entrenamiento y evita explosiones de gradiente.
+- **Camino de bajada (codificador)** con *max pooling* (160 → 80 → 40 → 20 → 10) para aprender
+  *qué* hay, y **camino de subida (decodificador)** con **conexiones de salto (`concatenate`)**
+  para recuperar los bordes finos de la hoja.
+- **Dropout:** apaga neuronas al azar mientras entrena para regularizar.
 - **Salida:** un número entre 0 y 1 por píxel (`sigmoid`) = probabilidad de que sea hoja.
 """)
 
 code("""
+def bloque(x, filtros, drop):
+    x = Conv2D(filtros, (3, 3), padding='same', use_bias=False,
+               kernel_initializer='he_normal')(x)
+    x = BatchNormalization()(x)
+    x = Activation('relu')(x)
+    x = Dropout(drop)(x)
+    x = Conv2D(filtros, (3, 3), padding='same', use_bias=False,
+               kernel_initializer='he_normal')(x)
+    x = BatchNormalization()(x)
+    x = Activation('relu')(x)
+    return x
+
+
 def construir_unet():
     Image_input = Input((LADO, LADO, 3))
-    inputs = Rescaling(1/255)(Image_input)   # pasa los píxeles de 0-255 a 0-1
+    inputs = Rescaling(1 / 255)(Image_input)   # pasa los píxeles de 0-255 a 0-1
 
     # camino de bajada
-    conv1 = Conv2D(64, (3, 3), activation='relu', padding='same')(inputs)
-    conv1 = Dropout(0.1)(conv1)
-    conv1 = Conv2D(64, (3, 3), activation='relu', padding='same')(conv1)
+    conv1 = bloque(inputs, 32, 0.1)
     maxp1 = MaxPooling2D((2, 2))(conv1)
 
-    conv2 = Conv2D(128, (3, 3), activation='relu', padding='same')(maxp1)
-    conv2 = Dropout(0.1)(conv2)
-    conv2 = Conv2D(128, (3, 3), activation='relu', padding='same')(conv2)
+    conv2 = bloque(maxp1, 64, 0.1)
     maxp2 = MaxPooling2D((2, 2))(conv2)
 
-    conv3 = Conv2D(256, (3, 3), activation='relu', padding='same')(maxp2)
-    conv3 = Dropout(0.2)(conv3)
-    conv3 = Conv2D(256, (3, 3), activation='relu', padding='same')(conv3)
+    conv3 = bloque(maxp2, 128, 0.2)
     maxp3 = MaxPooling2D((2, 2))(conv3)
 
-    conv4 = Conv2D(512, (3, 3), activation='relu', padding='same')(maxp3)
-    conv4 = Dropout(0.2)(conv4)
-    conv4 = Conv2D(512, (3, 3), activation='relu', padding='same')(conv4)
-    maxp4 = MaxPooling2D(pool_size=(2, 2))(conv4)
+    conv4 = bloque(maxp3, 256, 0.2)
+    maxp4 = MaxPooling2D((2, 2))(conv4)
 
-    conv5 = Conv2D(1024, (3, 3), activation='relu', padding='same')(maxp4)
-    conv5 = Dropout(0.3)(conv5)
-    conv5 = Conv2D(1024, (3, 3), activation='relu', padding='same')(conv5)
+    conv5 = bloque(maxp4, 512, 0.3)
 
     # camino de subida (con conexiones de salto)
-    up6 = Conv2DTranspose(512, (2, 2), strides=(2, 2), padding='same')(conv5)
-    up6 = concatenate([up6, conv4])
-    conv6 = Conv2D(512, (3, 3), activation='relu', padding='same')(up6)
-    conv6 = Dropout(0.2)(conv6)
-    conv6 = Conv2D(512, (3, 3), activation='relu', padding='same')(conv6)
+    up6 = Conv2DTranspose(256, (2, 2), strides=(2, 2), padding='same')(conv5)
+    conv6 = bloque(concatenate([up6, conv4]), 256, 0.2)
 
-    up7 = Conv2DTranspose(256, (2, 2), strides=(2, 2), padding='same')(conv6)
-    up7 = concatenate([up7, conv3])
-    conv7 = Conv2D(256, (3, 3), activation='relu', padding='same')(up7)
-    conv7 = Dropout(0.2)(conv7)
-    conv7 = Conv2D(256, (3, 3), activation='relu', padding='same')(conv7)
+    up7 = Conv2DTranspose(128, (2, 2), strides=(2, 2), padding='same')(conv6)
+    conv7 = bloque(concatenate([up7, conv3]), 128, 0.2)
 
-    up8 = Conv2DTranspose(128, (2, 2), strides=(2, 2), padding='same')(conv7)
-    up8 = concatenate([up8, conv2])
-    conv8 = Conv2D(128, (3, 3), activation='relu', padding='same')(up8)
-    conv8 = Dropout(0.1)(conv8)
-    conv8 = Conv2D(128, (3, 3), activation='relu', padding='same')(conv8)
+    up8 = Conv2DTranspose(64, (2, 2), strides=(2, 2), padding='same')(conv7)
+    conv8 = bloque(concatenate([up8, conv2]), 64, 0.1)
 
-    up9 = Conv2DTranspose(64, (2, 2), strides=(2, 2), padding='same')(conv8)
-    up9 = concatenate([up9, conv1], axis=3)
-    conv9 = Conv2D(64, (3, 3), activation='relu', padding='same')(up9)
-    conv9 = Dropout(0.1)(conv9)
-    conv9 = Conv2D(64, (3, 3), activation='relu', padding='same')(conv9)
+    up9 = Conv2DTranspose(32, (2, 2), strides=(2, 2), padding='same')(conv8)
+    conv9 = bloque(concatenate([up9, conv1], axis=3), 32, 0.1)
 
     outputs = Conv2D(1, (1, 1), activation='sigmoid')(conv9)
     return Model(inputs=[Image_input], outputs=[outputs])
@@ -249,12 +274,16 @@ def construir_unet():
 
 md("""
 ## 6. Entrenar
-- **Pérdida:** `binary_crossentropy`, porque cada píxel es una pregunta de sí o no (¿es hoja?).
-- **Métrica:** **IoU** (*Intersection over Union*). Compara la máscara predicha con la
-  correcta: la parte donde coinciden dividida por todo lo que marcó alguna de las dos.
-  1 = perfecta, 0 = nada que ver. Es mejor que el *accuracy*: si la hoja ocupa poco de la
-  foto, una red que dice "todo fondo" tendría mucho accuracy y un IoU de 0.
-- **Callbacks:** cortar si 6 épocas seguidas no mejora en validación y guardar la mejor época.
+- **Pérdida (`utils.bce_dice_loss`):** combina `binary_crossentropy` (píxel a píxel) con
+  **Dice Loss** (solapamiento global, muy parecido al IoU). Ayuda a cerrar agujeros internos
+  y mejora el desempeño en hojas chicas.
+- **Métrica:** **IoU** (*Intersection over Union*), de 0 a 1. Es mejor que el *accuracy*: si
+  la hoja ocupa poco de la foto, decir "todo fondo" da accuracy alto pero IoU = 0.
+- **Callbacks:**
+  - `ReduceLROnPlateau`: baja el *learning rate* a la mitad si `val_loss` no mejora en 3 épocas,
+    para afinar los bordes sin saltos bruscos.
+  - `EarlyStopping`: corta si pasan 8 épocas sin mejorar en validación y restaura la mejor época.
+  - `ModelCheckpoint`: guarda la mejor época en `models/unet.keras`.
 
 **Ojo:** el IoU de val se calcula contra máscaras **automáticas**, que tienen errores.
 El número que vale es el de test (sección 7), contra las corregidas a mano.
@@ -263,13 +292,23 @@ El número que vale es el de test (sección 7), contra las corregidas a mano.
 code("""
 if RUTA_MODELO.exists() and not REENTRENAR:
     print('Cargando el modelo ya entrenado:', RUTA_MODELO.name)
-    model = tf.keras.models.load_model(RUTA_MODELO)
+    model = tf.keras.models.load_model(
+        RUTA_MODELO, custom_objects={'bce_dice_loss': utils.bce_dice_loss}
+    )
 else:
     model = construir_unet()
-    model.compile(optimizer='adam', loss='binary_crossentropy',
-                  metrics=[tf.keras.metrics.BinaryIoU(target_class_ids=[1], threshold=0.5, name='iou')])
+    model.compile(
+        optimizer=tf.keras.optimizers.Adam(learning_rate=LR_INICIAL),
+        loss=utils.bce_dice_loss,
+        metrics=[tf.keras.metrics.BinaryIoU(target_class_ids=[1], threshold=0.5, name='iou')],
+    )
     callbacks = [
-        tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=PACIENCIA, restore_best_weights=True),
+        tf.keras.callbacks.ReduceLROnPlateau(
+            monitor='val_loss', factor=0.5, patience=3, min_lr=1e-6, verbose=1
+        ),
+        tf.keras.callbacks.EarlyStopping(
+            monitor='val_loss', patience=PACIENCIA, restore_best_weights=True, verbose=1
+        ),
         tf.keras.callbacks.ModelCheckpoint(RUTA_MODELO, monitor='val_loss', save_best_only=True),
     ]
     historia = model.fit(datos_train, validation_data=datos_val, epochs=EPOCAS, callbacks=callbacks)
@@ -375,11 +414,22 @@ plt.show()
 
 md("""
 ## 9. Conclusiones
-*Completar después de entrenar en Colab, solo con los números que salieron arriba:*
+Resultados reales en las 50 fotos de test (con máscaras corregidas a mano) tras las mejoras
+de la v2 (filtros `32→512` con `BatchNormalization`, `BCE + Dice Loss`, aumentación de color
+y rotaciones de 90°, y balanceo ×4 de `mancha_bacteriana` en train):
 
-- IoU promedio de la UNet en test: …
-- IoU promedio del truco automático: …
-- ¿En qué clases o tipos de foto falla más? (mirar la figura de peores) …
+- **IoU promedio de la UNet en test:** **0.931** (mediana **0.968**; 38/50 fotos ≥ 0.95 y 43/50 ≥ 0.90).
+  Subió desde **0.919** en la v1, mejorando en 45 de las 50 fotos y con un modelo 4× más liviano
+  (7,77M parámetros / 90 MB vs 31M / 356 MB).
+- **IoU promedio del truco automático:** **0.934** (mediana 0.985). La UNet empata en `mildiu`
+  (0.930 vs 0.931), supera al truco en `oidio` (0.930 vs 0.893) y le gana con holgura en las
+  fotos difíciles donde el truco falla fuerte (`Bacterial Leaf Spot_3`: 0.960 vs 0.327;
+  `Powdery Mildew_395`: 0.603 vs 0.057; `Downy Mildew_852`: 0.674 vs 0.514).
+- **Dónde falla más (las únicas 4 fotos debajo de 0.80):** una rama casi sin hoja
+  (`Bacterial Leaf Spot_56`, 0.53), un fondo de viñedo verde sin ejemplos similares en train
+  (`Powdery Mildew_395`, 0.60), una foto con 3 hojas separadas ya rechazada por la regla de
+  una hoja por foto (`Bacterial Leaf Spot_97`, 0.62) y una mancha blanquecina grande tocando
+  el borde (`Downy Mildew_852`, 0.67).
 
 **Recordar:** la UNet aprendió de máscaras automáticas con errores, así que puede repetirlos.
 Además, el test son solo 50 fotos y casi todas tienen fondo liso: no sabemos cómo segmenta

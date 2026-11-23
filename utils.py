@@ -252,6 +252,20 @@ def es_sospechosa(mascara, minimo=0.02, maximo=0.95):
     return area < minimo or area > maximo
 
 
+# ---------------------------------------------------------------------------
+# Pérdida de segmentación (UNet)
+# ---------------------------------------------------------------------------
+def bce_dice_loss(y_true, y_pred):
+    """Combina entropía cruzada binaria (píxel a píxel) con Dice (solapamiento)."""
+    import tensorflow as tf
+    y_true = tf.cast(y_true, tf.float32)
+    bce = tf.reduce_mean(tf.keras.losses.binary_crossentropy(y_true, y_pred))
+    inter = tf.reduce_sum(y_true * y_pred, axis=(1, 2, 3))
+    denom = tf.reduce_sum(y_true + y_pred, axis=(1, 2, 3))
+    dice = tf.reduce_mean((2.0 * inter + 1.0) / (denom + 1.0))
+    return bce + (1.0 - dice)
+
+
 if __name__ == '__main__':
     # python utils.py  -> genera splits.csv si todavía no existe
     if RUTA_SPLITS.exists():
