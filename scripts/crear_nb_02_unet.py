@@ -87,12 +87,15 @@ code("""
 SMOKE = os.environ.get('SMOKE') == '1'
 REENTRENAR = False
 
-EPOCAS = 1 if SMOKE else 50
-PACIENCIA = 8            # épocas sin mejorar en validación antes de cortar
-LR_INICIAL = 5e-4        # learning rate inicial (se reduce si val_loss se estanca)
+EPOCAS_F1 = 1 if SMOKE else 10   # Fase 1: encoder MobileNetV2 congelado (calienta el decodificador)
+EPOCAS_F2 = 1 if SMOKE else 40   # Fase 2: fine-tuning completo (con BN del encoder congeladas)
+PACIENCIA = 8                    # épocas sin mejorar en validación antes de cortar en Fase 2
+LR_F1 = 1e-3
+LR_F2 = 1e-4
 BATCH = 16
-LADO = utils.IMG_SEG     # 160
-FACTOR_MANCHA = 4        # repetir mancha_bacteriana solo en train (tiene solo 60 fotos)
+LADO = utils.IMG_SEG             # 160
+FACTOR_MANCHA = 4                # repetir mancha_bacteriana solo en train (tiene solo 60 fotos)
+FACTOR_MANUAL_TRAIN = 3          # dar más peso a fotos difíciles de train corregidas a mano (si existen)
 
 CARPETA = DATA / 'dataset_unet'
 NOMBRE = 'unet_smoke' if SMOKE else 'unet'          # la prueba no pisa el modelo real
@@ -156,29 +159,37 @@ plt.show()
 
 md("""
 ## 4. Balanceo y aumentación de datos (solo en train)
-1. **Sobremuestreo de `mancha_bacteriana`:** esta clase tiene solo 60 fotos en train (3,9%)
-   y concentra los fondos grises y hojas chicas. La repetimos `FACTOR_MANCHA` veces **solo en
-   train** (nunca en val ni en test).
-2. **Aumentación al azar en cada época:**
-   - **Espejado** horizontal/vertical y **rotación de 90°** (0°, 90°, 180°, 270°) aplicados
-     por igual a foto y máscara.
-   - **Cambios suaves de brillo, contraste y saturación** aplicados **solo a la foto**, para
-     que la red no dependa únicamente de que la hoja sea verde intenso (ayuda con hojas
-     pálidas o con manchas blanquecinas de mildiu/oídio).
+Usamos exactamente la misma aumentación limpia de **v2** (sin fondos sintéticos) para medir
+el impacto puro del **Transfer Learning (`MobileNetV2` preentrenado)** en el codificador:
+
+1. **Sobremuestreo de `mancha_bacteriana`:** repetimos ×4 sus 60 fotos **solo en train**.
+2. **Aumentación al azar:** espejado H/V, rotaciones de 90° (foto y máscara) y variación suave
+   de brillo, contraste y saturación (solo foto).
 """)
 
 code("""
 clase_de = dict(zip(lista['archivo'], lista['clase']))
-idx_mancha = [i for i, n in enumerate(nombres_train) if clase_de[n] == 'mancha_bacteriana']
-idx_extra = idx_mancha * (FACTOR_MANCHA - 1)
+origen_de = dict(zip(lista['archivo'], lista['mascara']))
+idx_extra = []
+for i, n in enumerate(nombres_train):
+    rep = 1
+    if clase_de[n] == 'mancha_bacteriana':
+        rep = max(rep, FACTOR_MANCHA)
+    if origen_de.get(n) == 'manual_train':
+        rep = max(rep, FACTOR_MANUAL_TRAIN)
+    if rep > 1:
+        idx_extra.extend([i] * (rep - 1))
 X_train_bal = np.concatenate([X_train, X_train[idx_extra]], axis=0) if idx_extra else X_train
 Y_train_bal = np.concatenate([Y_train, Y_train[idx_extra]], axis=0) if idx_extra else Y_train
 assert len(X_train_bal) == len(Y_train_bal)
+n_man = sum(origen_de.get(n) == 'manual_train' for n in nombres_train)
 print(f'Train balanceado: {len(X_train)} -> {len(X_train_bal)} fotos '
-      f'(+{len(idx_extra)} copias de mancha_bacteriana)')
+      f'(+{len(idx_extra)} copias; incluye {n_man} máscaras manuales de train)')
 
 
 def aumentar(foto, mascara):
+    foto = tf.cast(foto, tf.float32) / 255.0
+
     flip_h = tf.random.uniform(()) > 0.5
     foto = tf.cond(flip_h, lambda: tf.image.flip_left_right(foto), lambda: foto)
     mascara = tf.cond(flip_h, lambda: tf.image.flip_left_right(mascara), lambda: mascara)
@@ -189,8 +200,7 @@ def aumentar(foto, mascara):
     foto = tf.image.rot90(foto, k)
     mascara = tf.image.rot90(mascara, k)
 
-    # Cambios suaves de luz y color solo en la foto (la máscara no cambia)
-    foto = tf.cast(foto, tf.float32) / 255.0
+    # Cambios suaves de luz y color solo en la foto
     foto = tf.image.random_brightness(foto, max_delta=0.15)
     foto = tf.image.random_contrast(foto, lower=0.85, upper=1.15)
     foto = tf.image.random_saturation(foto, lower=0.75, upper=1.25)
@@ -206,24 +216,22 @@ datos_val = tf.data.Dataset.from_tensor_slices((X_val, Y_val)).batch(BATCH)
 """)
 
 md("""
-## 5. La UNet
-Partimos de la arquitectura del notebook base (`recursos/unet_pruebas_enzo.ipynb`) y le
-aplicamos dos mejoras clave tras el primer entrenamiento (que había mostrado un salto brusco
-en época 6 con 31M de parámetros sin normalizar):
+## 5. La UNet con codificador preentrenado (`MobileNetV2`)
+En vez de entrenar el codificador desde cero (solo 1.542 fotos de laboratorio), usamos
+**`MobileNetV2` preentrenado en ImageNet** (1,4 millones de fotos reales del mundo) como
+camino de bajada y construimos el decodificador UNet con conexiones de salto:
 
-- **Filtros reducidos (`32 → 64 → 128 → 256 → 512`):** ~7,8 millones de parámetros en vez de
-  31 millones. Es 4 veces más liviana y sobreajusta menos con ~1.500 fotos.
-- **BatchNormalization + inicialización `he_normal`** en cada bloque convolucional: estabiliza
-  el entrenamiento y evita explosiones de gradiente.
-- **Camino de bajada (codificador)** con *max pooling* (160 → 80 → 40 → 20 → 10) para aprender
-  *qué* hay, y **camino de subida (decodificador)** con **conexiones de salto (`concatenate`)**
-  para recuperar los bordes finos de la hoja.
-- **Dropout:** apaga neuronas al azar mientras entrena para regularizar.
-- **Salida:** un número entre 0 y 1 por píxel (`sigmoid`) = probabilidad de que sea hoja.
+- **Camino de bajada (codificador `MobileNetV2`):** achica la foto (`160 → 80 → 40 → 20 → 10 → 5`)
+  aprovechando filtros ya aprendidos para reconocer objetos, hojas, ramas, sombras y fondos.
+- **Salto de borde fino (`160×160`):** un bloque chico directo sobre la entrada conserva el
+  detalle del borde dentado de la hoja en resolución completa.
+- **Camino de subida (decodificador UNet):** `Conv2DTranspose` + `concatenate` con cada escala
+  del codificador + `BatchNormalization` y `Dropout`.
+- **Salida:** probabilidad por píxel (`sigmoid`) de que sea hoja.
 """)
 
 code("""
-def bloque(x, filtros, drop):
+def bloque_dec(x, filtros, drop):
     x = Conv2D(filtros, (3, 3), padding='same', use_bias=False,
                kernel_initializer='he_normal')(x)
     x = BatchNormalization()(x)
@@ -238,52 +246,55 @@ def bloque(x, filtros, drop):
 
 def construir_unet():
     Image_input = Input((LADO, LADO, 3))
-    inputs = Rescaling(1 / 255)(Image_input)   # pasa los píxeles de 0-255 a 0-1
+    x_norm = Rescaling(1.0 / 127.5, offset=-1.0)(Image_input)   # rango [-1, 1] para MobileNetV2
 
-    # camino de bajada
-    conv1 = bloque(inputs, 32, 0.1)
-    maxp1 = MaxPooling2D((2, 2))(conv1)
+    # Rama liviana en resolución completa (160x160) para bordes finos de la hoja
+    s0 = Conv2D(32, (3, 3), padding='same', use_bias=False,
+                kernel_initializer='he_normal')(x_norm)
+    s0 = BatchNormalization()(s0)
+    s0 = Activation('relu')(s0)
 
-    conv2 = bloque(maxp1, 64, 0.1)
-    maxp2 = MaxPooling2D((2, 2))(conv2)
+    # Codificador preentrenado en ImageNet
+    base = tf.keras.applications.MobileNetV2(
+        input_shape=(LADO, LADO, 3),
+        input_tensor=x_norm,
+        include_top=False,
+        weights='imagenet',
+    )
+    s1 = base.get_layer('block_1_expand_relu').output    # 80x80
+    s2 = base.get_layer('block_3_expand_relu').output    # 40x40
+    s3 = base.get_layer('block_6_expand_relu').output    # 20x20
+    s4 = base.get_layer('block_13_expand_relu').output   # 10x10
+    cuello = base.get_layer('block_16_project').output   # 5x5
 
-    conv3 = bloque(maxp2, 128, 0.2)
-    maxp3 = MaxPooling2D((2, 2))(conv3)
+    # Decodificador UNet con conexiones de salto
+    x = Conv2DTranspose(256, (2, 2), strides=(2, 2), padding='same')(cuello)
+    x = bloque_dec(concatenate([x, s4]), 256, 0.2)       # 10x10
 
-    conv4 = bloque(maxp3, 256, 0.2)
-    maxp4 = MaxPooling2D((2, 2))(conv4)
+    x = Conv2DTranspose(128, (2, 2), strides=(2, 2), padding='same')(x)
+    x = bloque_dec(concatenate([x, s3]), 128, 0.2)       # 20x20
 
-    conv5 = bloque(maxp4, 512, 0.3)
+    x = Conv2DTranspose(64, (2, 2), strides=(2, 2), padding='same')(x)
+    x = bloque_dec(concatenate([x, s2]), 64, 0.1)        # 40x40
 
-    # camino de subida (con conexiones de salto)
-    up6 = Conv2DTranspose(256, (2, 2), strides=(2, 2), padding='same')(conv5)
-    conv6 = bloque(concatenate([up6, conv4]), 256, 0.2)
+    x = Conv2DTranspose(32, (2, 2), strides=(2, 2), padding='same')(x)
+    x = bloque_dec(concatenate([x, s1]), 32, 0.1)        # 80x80
 
-    up7 = Conv2DTranspose(128, (2, 2), strides=(2, 2), padding='same')(conv6)
-    conv7 = bloque(concatenate([up7, conv3]), 128, 0.2)
+    x = Conv2DTranspose(32, (2, 2), strides=(2, 2), padding='same')(x)
+    x = bloque_dec(concatenate([x, s0]), 32, 0.1)        # 160x160
 
-    up8 = Conv2DTranspose(64, (2, 2), strides=(2, 2), padding='same')(conv7)
-    conv8 = bloque(concatenate([up8, conv2]), 64, 0.1)
-
-    up9 = Conv2DTranspose(32, (2, 2), strides=(2, 2), padding='same')(conv8)
-    conv9 = bloque(concatenate([up9, conv1], axis=3), 32, 0.1)
-
-    outputs = Conv2D(1, (1, 1), activation='sigmoid')(conv9)
-    return Model(inputs=[Image_input], outputs=[outputs])
+    outputs = Conv2D(1, (1, 1), activation='sigmoid')(x)
+    return Model(inputs=[Image_input], outputs=[outputs]), base
 """)
 
 md("""
-## 6. Entrenar
-- **Pérdida (`utils.bce_dice_loss`):** combina `binary_crossentropy` (píxel a píxel) con
-  **Dice Loss** (solapamiento global, muy parecido al IoU). Ayuda a cerrar agujeros internos
-  y mejora el desempeño en hojas chicas.
-- **Métrica:** **IoU** (*Intersection over Union*), de 0 a 1. Es mejor que el *accuracy*: si
-  la hoja ocupa poco de la foto, decir "todo fondo" da accuracy alto pero IoU = 0.
-- **Callbacks:**
-  - `ReduceLROnPlateau`: baja el *learning rate* a la mitad si `val_loss` no mejora en 3 épocas,
-    para afinar los bordes sin saltos bruscos.
-  - `EarlyStopping`: corta si pasan 8 épocas sin mejorar en validación y restaura la mejor época.
-  - `ModelCheckpoint`: guarda la mejor época en `models/unet.keras`.
+## 6. Entrenar en 2 fases (Transfer Learning + Fine-tuning)
+- **Fase 1 (encoder congelado):** entrena solo el decodificador UNet y el salto de borde fino
+  (`lr = 1e-3`), sin romper los pesos preentrenados de ImageNet.
+- **Fase 2 (*fine-tuning*):** descongela el codificador `MobileNetV2` (manteniendo congeladas
+  sus capas `BatchNormalization`, práctica estándar con batch chico) y ajusta toda la red con
+  `lr = 1e-4`, `ReduceLROnPlateau` y `EarlyStopping`.
+- **Pérdida (`utils.bce_dice_loss`):** combina `binary_crossentropy` + `Dice Loss`.
 
 **Ojo:** el IoU de val se calcula contra máscaras **automáticas**, que tienen errores.
 El número que vale es el de test (sección 7), contra las corregidas a mano.
@@ -296,23 +307,50 @@ if RUTA_MODELO.exists() and not REENTRENAR:
         RUTA_MODELO, custom_objects={'bce_dice_loss': utils.bce_dice_loss}
     )
 else:
-    model = construir_unet()
+    model, base = construir_unet()
+
+    # Fase 1: encoder congelado
+    for capa in base.layers:
+        capa.trainable = False
     model.compile(
-        optimizer=tf.keras.optimizers.Adam(learning_rate=LR_INICIAL),
+        optimizer=tf.keras.optimizers.Adam(learning_rate=LR_F1),
         loss=utils.bce_dice_loss,
         metrics=[tf.keras.metrics.BinaryIoU(target_class_ids=[1], threshold=0.5, name='iou')],
     )
-    callbacks = [
-        tf.keras.callbacks.ReduceLROnPlateau(
-            monitor='val_loss', factor=0.5, patience=3, min_lr=1e-6, verbose=1
-        ),
-        tf.keras.callbacks.EarlyStopping(
-            monitor='val_loss', patience=PACIENCIA, restore_best_weights=True, verbose=1
-        ),
-        tf.keras.callbacks.ModelCheckpoint(RUTA_MODELO, monitor='val_loss', save_best_only=True),
-    ]
-    historia = model.fit(datos_train, validation_data=datos_val, epochs=EPOCAS, callbacks=callbacks)
-    pd.DataFrame(historia.history).to_csv(ROOT / 'resultados' / f'{NOMBRE}_historia.csv', index_label='epoca')
+    print(f'--- Fase 1 (encoder congelado, máx {EPOCAS_F1} épocas) ---')
+    h1 = model.fit(
+        datos_train, validation_data=datos_val, epochs=EPOCAS_F1,
+        callbacks=[tf.keras.callbacks.EarlyStopping(
+            monitor='val_loss', patience=4, restore_best_weights=True, verbose=1
+        )],
+    )
+
+    # Fase 2: fine-tuning (descongela el encoder excepto sus BatchNormalization)
+    for capa in base.layers:
+        capa.trainable = not isinstance(capa, BatchNormalization)
+    model.compile(
+        optimizer=tf.keras.optimizers.Adam(learning_rate=LR_F2),
+        loss=utils.bce_dice_loss,
+        metrics=[tf.keras.metrics.BinaryIoU(target_class_ids=[1], threshold=0.5, name='iou')],
+    )
+    print(f'--- Fase 2 (fine-tuning, máx {EPOCAS_F2} épocas) ---')
+    h2 = model.fit(
+        datos_train, validation_data=datos_val, epochs=EPOCAS_F2,
+        callbacks=[
+            tf.keras.callbacks.ReduceLROnPlateau(
+                monitor='val_loss', factor=0.5, patience=3, min_lr=1e-6, verbose=1
+            ),
+            tf.keras.callbacks.EarlyStopping(
+                monitor='val_loss', patience=PACIENCIA, restore_best_weights=True, verbose=1
+            ),
+            tf.keras.callbacks.ModelCheckpoint(RUTA_MODELO, monitor='val_loss', save_best_only=True),
+        ],
+    )
+
+    df1 = pd.DataFrame(h1.history); df1['fase'] = 1
+    df2 = pd.DataFrame(h2.history); df2['fase'] = 2
+    df_hist = pd.concat([df1, df2], ignore_index=True)
+    df_hist.to_csv(ROOT / 'resultados' / f'{NOMBRE}_historia.csv', index_label='epoca')
     model.save(RUTA_MODELO)
 
 print(f'{model.count_params():,} parámetros')
@@ -328,6 +366,10 @@ if ruta_historia.exists():
     ax[0].set_title('Pérdida (más bajo = mejor)'); ax[0].set_xlabel('Época'); ax[0].legend()
     ax[1].plot(epocas, h['iou'], 'o-', label='train'); ax[1].plot(epocas, h['val_iou'], 'o-', label='val')
     ax[1].set_title('IoU (más alto = mejor)'); ax[1].set_xlabel('Época'); ax[1].legend()
+    if 'fase' in h.columns and (h['fase'] == 2).any():
+        corte = int(h.index[h['fase'] == 2][0]) + 0.5
+        for a in ax:
+            a.axvline(corte, color='gray', linestyle='--', alpha=0.7)
     fig.tight_layout()
     utils.guardar_figura(fig, f'{NOMBRE}_curvas')
     plt.show()

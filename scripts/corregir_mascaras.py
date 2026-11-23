@@ -1,8 +1,11 @@
-"""Corregir a mano las 50 máscaras de masks/manual/ pintando sobre la foto.
+"""Corregir a mano máscaras pintando sobre la foto.
 
 Uso (desde la carpeta del proyecto, con el entorno virtual activado):
-    python scripts/corregir_mascaras.py enzo     -> le tocan 25 fotos (las impares)
-    python scripts/corregir_mascaras.py tato     -> le tocan las otras 25 (las pares)
+    python scripts/corregir_mascaras.py enzo           -> 25 fotos de test (masks/manual/)
+    python scripts/corregir_mascaras.py tato           -> las otras 25 de test (masks/manual/)
+    python scripts/corregir_mascaras.py enzo --train   -> 20 fotos difíciles de train (masks/manual_train/)
+    python scripts/corregir_mascaras.py tato --train   -> las otras 20 de train (masks/manual_train/)
+    python scripts/corregir_mascaras.py todas --train  -> las 40 fotos difíciles de train
 
 Lo que queda en color es HOJA; lo oscuro es FONDO. La línea roja es el borde.
 
@@ -53,14 +56,18 @@ def escribir_mascara(ruta, mascara):
 
 
 def repartir(lista, quien):
-    """Enzo: posiciones 1, 3, 5... / Tato: 2, 4, 6... Así a los dos les tocan todas las clases."""
+    """Enzo: posiciones 1, 3, 5... / Tato: 2, 4, 6... / todas: lista completa."""
+    if quien == 'todas':
+        return lista
     return lista[0::2] if quien == 'enzo' else lista[1::2]
 
 
 class Editor:
-    def __init__(self, fotos, quien):
+    def __init__(self, fotos, quien, carpeta='manual'):
         self.fotos = fotos
-        self.ruta_revisadas = MANUAL / f'revisadas_{quien}.txt'
+        self.carpeta = carpeta
+        self.dir_manual = ROOT / 'masks' / carpeta
+        self.ruta_revisadas = self.dir_manual / f'revisadas_{quien}.txt'
         self.revisadas = set()
         if self.ruta_revisadas.exists():
             self.revisadas = set(self.ruta_revisadas.read_text(encoding='utf-8').splitlines())
@@ -77,7 +84,7 @@ class Editor:
         self.k = k
         self.path = self.fotos[k]
         self.foto = utils.cargar_imagen(self.path, 256)[:, :, ::-1]   # RGB -> BGR (OpenCV)
-        self.mascara = leer_mascara(ruta_mascara(self.path, 'manual'))
+        self.mascara = leer_mascara(ruta_mascara(self.path, self.carpeta))
         self.original = self.mascara.copy()
         self.historial = []
         self.pintando = self.anterior = None
@@ -85,7 +92,7 @@ class Editor:
     def guardar(self):
         """Solo escribe el archivo si se cambió algo."""
         if not np.array_equal(self.mascara, self.original):
-            escribir_mascara(ruta_mascara(self.path, 'manual'), self.mascara)
+            escribir_mascara(ruta_mascara(self.path, self.carpeta), self.mascara)
             self.original = self.mascara.copy()
 
     def marcar_revisada(self):
@@ -194,9 +201,15 @@ class Editor:
 
 
 if __name__ == '__main__':
-    quien = sys.argv[1].lower() if len(sys.argv) == 2 else ''
-    if quien not in ('enzo', 'tato'):
-        sys.exit('Uso: python scripts/corregir_mascaras.py enzo   (o tato)')
-    lista = (MANUAL / 'LISTA.txt').read_text(encoding='utf-8').split('\n')
-    lista = [x.strip() for x in lista if x.strip()]
-    Editor(repartir(lista, quien), quien).correr()
+    args = [a.lower() for a in sys.argv[1:]]
+    es_train = '--train' in args
+    pos = [a for a in args if a != '--train']
+    quien = pos[0] if len(pos) == 1 else ''
+    if quien not in ('enzo', 'tato', 'todas'):
+        sys.exit('Uso: python scripts/corregir_mascaras.py enzo|tato|todas [--train]')
+    carpeta = 'manual_train' if es_train else 'manual'
+    lista_path = ROOT / 'masks' / carpeta / 'LISTA.txt'
+    if not lista_path.exists():
+        sys.exit(f'No existe {lista_path}')
+    lista = [x.strip() for x in lista_path.read_text(encoding='utf-8').splitlines() if x.strip()]
+    Editor(repartir(lista, quien), quien, carpeta=carpeta).correr()

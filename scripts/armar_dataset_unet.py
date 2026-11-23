@@ -57,22 +57,46 @@ def guardar_par(path, split, carpeta_mascara):
     return nombre
 
 
+def cargar_manual_train_revisadas():
+    """Rutas de train ya revisadas a mano en masks/manual_train/ (solo las marcadas en revisadas_*.txt)."""
+    carpeta = ROOT / 'masks' / 'manual_train'
+    if not carpeta.exists():
+        return set()
+    revisadas = set()
+    for txt in sorted(carpeta.glob('revisadas_*.txt')):
+        for linea in txt.read_text(encoding='utf-8').splitlines():
+            p = linea.strip()
+            if p and ruta_mascara(p, 'manual_train').exists():
+                revisadas.add(p)
+    return revisadas
+
+
 def main():
     if not (ROOT / 'masks' / 'auto').exists():
         sys.exit('Falta masks/auto/: primero ejecutá 01_mascaras.ipynb.')
 
     df = utils.cargar_splits()
-    rechazadas = utils.cargar_rechazadas()
+    rechazadas = set(utils.cargar_rechazadas())
+    manual_train = cargar_manual_train_revisadas()
 
-    # train y val: sin copias de test y sin máscaras rechazadas.
-    entrenar = utils.quitar_copias_de_test(df)
-    entrenar = entrenar[~entrenar['path'].isin(rechazadas)]
+    # train y val: sin copias de test. Si una foto de train fue corregida a mano en
+    # masks/manual_train/ (y marcada en revisadas_*.txt), se rescata aunque estuviera
+    # en rechazadas.txt y se usa su máscara manual en lugar de la automática.
+    sin_copias = utils.quitar_copias_de_test(df)
+    assert all(p in set(sin_copias.loc[sin_copias['split'] == 'train', 'path']) for p in manual_train), (
+        'Error: hay rutas en masks/manual_train/ que no pertenecen a train limpio (sin copias de test).'
+    )
+    mantener = (~sin_copias['path'].isin(rechazadas)) | (
+        (sin_copias['split'] == 'train') & sin_copias['path'].isin(manual_train)
+    )
+    entrenar = sin_copias[mantener].copy()
 
-    # test: las 50 de masks/manual/LISTA.txt.
+    # test: las 50 de masks/manual/LISTA.txt (nunca se tocan).
     lista = (ROOT / 'masks' / 'manual' / 'LISTA.txt').read_text(encoding='utf-8').splitlines()
     lista = [x.strip() for x in lista if x.strip()]
     examen = df[df['path'].isin(lista)]
     assert len(examen) == len(lista) and (examen['split'] == 'test').all()
+    assert not (set(entrenar['path']) & set(examen['path'])), 'Fuga de datos entre train/val y test.'
 
     if DESTINO.exists():
         shutil.rmtree(DESTINO)
@@ -83,9 +107,11 @@ def main():
 
     filas = []
     for _, fila in entrenar.iterrows():
-        nombre = guardar_par(fila['path'], fila['split'], 'auto')
+        usa_manual = (fila['split'] == 'train') and (fila['path'] in manual_train)
+        origen = 'manual_train' if usa_manual else 'auto'
+        nombre = guardar_par(fila['path'], fila['split'], origen)
         filas.append({'split': fila['split'], 'archivo': nombre, 'clase': fila['clase'],
-                      'original': fila['path'], 'mascara': 'auto'})
+                      'original': fila['path'], 'mascara': origen})
     for _, fila in examen.iterrows():
         nombre = guardar_par(fila['path'], 'test', 'manual')
         guardar_mascara(fila['path'], 'auto', DESTINO / 'test' / 'masks_auto' / nombre)
@@ -95,6 +121,8 @@ def main():
     tabla = pd.DataFrame(filas)
     tabla.to_csv(DESTINO / 'lista.csv', index=False)
     print(pd.crosstab(tabla['clase'], tabla['split'], margins=True, margins_name='total'))
+    if manual_train:
+        print(f'Máscaras manuales de train incluidas: {len(manual_train)}')
     shutil.make_archive(str(DESTINO), 'zip', DESTINO)      # dataset_unet.zip, para Colab
     print('Listo:', DESTINO, 'y', DESTINO.name + '.zip')
 
