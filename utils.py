@@ -161,6 +161,23 @@ def quitar_copias_de_test(df):
     return df[(df['split'] != 'test') & ~df['path'].isin(prohibidas)].reset_index(drop=True)
 
 
+def asignar_grupos(df):
+    """Devuelve el ID de grupo de cada foto según datos/casi_duplicados.csv.
+
+    Las fotos que son casi copias comparten el mismo grupo; las demás son su propio grupo.
+    Sirve para que StratifiedGroupKFold no parta copias entre train y val.
+    """
+    copias = pd.read_csv(RUTA_COPIAS)
+    mapa = dict(zip(copias['path'], 'g_' + copias['grupo'].astype(str)))
+    return np.array([mapa.get(p, p) for p in df['path']])
+
+
+def ruta_segmentada(path):
+    """dataset/<clase>/foto.jpg -> datos/dataset_segmentado/<clase>/foto.png"""
+    p = Path(path)
+    return (Path('datos') / 'dataset_segmentado' / p.parent.name / f'{p.stem}.png').as_posix()
+
+
 def cargar_rechazadas():
     """Lee datos/masks/rechazadas.txt: fotos con la máscara mal (no entrenan la UNet)."""
     texto = (MASKS / 'rechazadas.txt').read_text(encoding='utf-8')
@@ -170,13 +187,13 @@ def cargar_rechazadas():
 # ---------------------------------------------------------------------------
 # Cargar imágenes y figuras
 # ---------------------------------------------------------------------------
-def cargar_imagen(path, size=None):
+def cargar_imagen(path, size=None, base=ROOT):
     """Abre una foto y la devuelve como array RGB uint8 de 3 canales.
 
     Convierte los PNG con transparencia y las fotos en escala de grises.
     Si se pasa size, la redimensiona a size x size.
     """
-    img = Image.open(Path(ROOT) / path).convert('RGB')
+    img = Image.open(Path(base) / path).convert('RGB')
     if size is not None:
         img = img.resize((size, size), Image.BILINEAR)
     return np.array(img)
@@ -287,6 +304,41 @@ def segmentar_hoja(model, foto):
 def quitar_fondo(foto, mascara):
     """Pinta de negro todo lo que no es hoja."""
     return foto * mascara[..., None].astype(np.uint8)
+
+
+# ---------------------------------------------------------------------------
+# Interpretabilidad: Grad-CAM para el clasificador (MobileNetV2 sin anidar)
+# ---------------------------------------------------------------------------
+def grad_cam(model, foto, clase_idx=None, capa='out_relu'):
+    """Mapa de calor Grad-CAM (0..1) del tamaño de `foto`.
+
+    Indica qué zonas de la imagen pesaron más al predecir `clase_idx`
+    (si es None, usa la clase con mayor probabilidad).
+    """
+    import tensorflow as tf
+    h, w = foto.shape[:2]
+    entrada = np.array(Image.fromarray(foto).resize((IMG_CLF, IMG_CLF), Image.BILINEAR), dtype=np.float32)[None]
+    extractor = tf.keras.Model(model.inputs[0], [model.get_layer(capa).output, model.outputs[0]])
+    with tf.GradientTape() as tape:
+        conv_out, preds = extractor(entrada, training=False)
+        if clase_idx is None:
+            clase_idx = int(tf.argmax(preds[0]))
+        puntaje = preds[:, clase_idx]
+    grads = tape.gradient(puntaje, conv_out)
+    pesos = tf.reduce_mean(grads, axis=(0, 1, 2))
+    mapa = tf.reduce_sum(conv_out[0] * pesos, axis=-1)
+    mapa = tf.maximum(mapa, 0)
+    maximo = tf.reduce_max(mapa)
+    if maximo > 0:
+        mapa = mapa / maximo
+    mapa = cv2.resize(mapa.numpy(), (w, h), interpolation=cv2.INTER_LINEAR)
+    return np.clip(mapa, 0.0, 1.0)
+
+
+def superponer_gradcam(foto, mapa, alpha=0.45):
+    """Superpone el mapa de calor Grad-CAM (rojo = mayor atención) sobre `foto` RGB."""
+    calor = cv2.applyColorMap(np.uint8(255 * mapa), cv2.COLORMAP_JET)[:, :, ::-1]
+    return np.uint8(np.clip((1.0 - alpha) * foto + alpha * calor, 0, 255))
 
 
 # ---------------------------------------------------------------------------

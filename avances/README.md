@@ -40,4 +40,4 @@ Sirve para no perder el hilo entre sesiones y para poder explicar cada decisión
 | [2026-11-21](2026-11-21.md) | Entorno virtual, `requirements.txt`, UNet base, fase 1 y `splits.csv` (con duplicados detectados) |
 | [2026-11-22](2026-11-22.md) | Revisión de máscaras, decisión "una hoja por foto", casi duplicados y corrección manual de 25/50 máscaras (Tato) |
 | [2026-11-23](2026-11-23.md) | Paso 4 (50 máscaras test); paso 5: `dataset_unet/`, GPU WSL2, barrido UNet v1–v5 (0.931) y preparación `masks/manual_train/` (40 fotos train) · Enzo: orden en `datos/`, `.venv`, notebook 02 simple y entrenamiento en Colab (0.923) |
-| [2026-11-24](2026-11-24.md) | 39 máscaras `manual_train` corregidas a mano (Tato) + **UNet v6 (`MobileNetV2`, 65 MB): IoU `0.941`**, supera al truco automático (`0.934`) |
+| [2026-11-24](2026-11-24.md) | 39 máscaras `manual_train` + **UNet v6 (`0.941`)** + limpieza Enzo (**`0.955`**) + `dataset_segmentado` (2393) + **baseline NB03 A vs B** (CV `0.976` vs `0.971`; test `0.953` vs `0.932` + Grad-CAM) |
