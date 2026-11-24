@@ -167,14 +167,14 @@ plt.show()
 
 md("""
 ## 4. Generar las máscaras de todas las fotos
-Se guardan en `masks/auto/<clase>/<nombre>.png` (0 = fondo, 255 = hoja). **No se toca `dataset/`.**
+Se guardan en `datos/masks/auto/<clase>/<nombre>.png` (0 = fondo, 255 = hoja). **No se toca `dataset/`.**
 
 Además marcamos como **sospechosas** las máscaras que ocupan menos del 2% o más del 95% de la
 foto: casi seguro salieron mal.
 """)
 
 code("""
-carpeta_auto = utils.ROOT / 'masks' / 'auto'
+carpeta_auto = utils.MASKS / 'auto'
 areas, sospechosas = [], []
 
 for path in df['path']:
@@ -189,7 +189,7 @@ for path in df['path']:
 
 df['area_mascara'] = areas
 df['mascara'] = [
-    'masks/auto/' + p.split('/')[1] + '/' + p.split('/')[-1].rsplit('.', 1)[0] + '.png'
+    'datos/masks/auto/' + p.split('/')[1] + '/' + p.split('/')[-1].rsplit('.', 1)[0] + '.png'
     for p in df['path']
 ]
 print('Máscaras generadas:', len(df))
@@ -211,13 +211,13 @@ plt.show()
 """)
 
 md("""
-La lista de máscaras malas va en `masks/rechazadas.txt` (una ruta por línea). La primera vez se
+La lista de máscaras malas va en `datos/masks/rechazadas.txt` (una ruta por línea). La primera vez se
 crea con las sospechosas; **después la completan ustedes** al revisar las grillas. Si el archivo
 ya existe, no se pisa.
 """)
 
 code("""
-ruta_rechazadas = utils.ROOT / 'masks' / 'rechazadas.txt'
+ruta_rechazadas = utils.MASKS / 'rechazadas.txt'
 if ruta_rechazadas.exists():
     print('rechazadas.txt ya existe: no se modifica.')
 else:
@@ -229,7 +229,7 @@ md("""
 ## 5. Grillas para revisar a ojo
 Guardamos todas las fotos con su contorno en grillas de 24, en `figuras/revision_mascaras/`.
 Cada foto tiene su **nombre de archivo** arriba: si una máscara está mal, se copia su ruta
-(`dataset/<clase>/<nombre>`) en `masks/rechazadas.txt`.
+(`dataset/<clase>/<nombre>`) en `datos/masks/rechazadas.txt`.
 """)
 
 code("""
@@ -261,13 +261,13 @@ md("""
 ## 6. Elegir 50 fotos de test para corregir a mano
 Para medir qué tan bien segmenta la UNet hacen falta máscaras **correctas**, no automáticas.
 Elegimos 50 fotos del split **test** (12 o 13 por clase, empezando por las sospechosas) y copiamos
-su máscara automática a `masks/manual/` como punto de partida para corregirlas.
+su máscara automática a `datos/masks/manual/` como punto de partida para corregirlas.
 
-Si una máscara ya está en `masks/manual/`, no se pisa (puede estar corregida).
+Si una máscara ya está en `datos/masks/manual/`, no se pisa (puede estar corregida).
 """)
 
 code("""
-carpeta_manual = utils.ROOT / 'masks' / 'manual'
+carpeta_manual = utils.MASKS / 'manual'
 cupo = {'hojas_sanas': 13, 'mancha_bacteriana': 12, 'mildiu': 13, 'oidio': 12}
 test = df[df['split'] == 'test'].copy()
 test['sospechosa'] = test['path'].isin(sospechosas)
@@ -281,7 +281,7 @@ for clase, n in cupo.items():
 elegidas = pd.concat(elegidas)
 
 for _, fila in elegidas.iterrows():
-    destino = carpeta_manual / fila['mascara'].removeprefix('masks/auto/')
+    destino = carpeta_manual / fila['mascara'].removeprefix('datos/masks/auto/')
     destino.parent.mkdir(parents=True, exist_ok=True)
     if not destino.exists():
         shutil.copy(utils.ROOT / fila['mascara'], destino)
@@ -295,9 +295,9 @@ elegidas['clase'].value_counts()
 md("""
 ## Lo que sigue (lo hacen ustedes)
 1. **Revisar las grillas** de `figuras/revision_mascaras/` y agregar las rutas de las máscaras malas
-   a `masks/rechazadas.txt`. Esas fotos no se usan para entrenar la UNet.
-2. **Corregir a mano** las 50 máscaras de `masks/manual/` (blanco = hoja, negro = fondo), por
-   ejemplo con GIMP. La lista está en `masks/manual/LISTA.txt`.
+   a `datos/masks/rechazadas.txt`. Esas fotos no se usan para entrenar la UNet.
+2. **Corregir a mano** las 50 máscaras de `datos/masks/manual/` (blanco = hoja, negro = fondo), por
+   ejemplo con GIMP. La lista está en `datos/masks/manual/LISTA.txt`.
 """)
 
 nb = nbf.v4.new_notebook()

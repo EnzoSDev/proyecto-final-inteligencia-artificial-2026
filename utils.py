@@ -25,8 +25,10 @@ IMG_SEG = 160                 # tamaño de entrada de la UNet
 BATCH = 32
 
 ROOT = Path(__file__).resolve().parent   # carpeta del proyecto (donde está utils.py)
-RUTA_SPLITS = ROOT / 'splits.csv'
-RUTA_COPIAS = ROOT / 'casi_duplicados.csv'
+DATOS = ROOT / 'datos'                   # todo lo que armamos a partir de dataset/
+MASKS = DATOS / 'masks'                  # auto/, manual/ y rechazadas.txt
+RUTA_SPLITS = DATOS / 'splits.csv'
+RUTA_COPIAS = DATOS / 'casi_duplicados.csv'
 
 
 # ---------------------------------------------------------------------------
@@ -40,6 +42,8 @@ def configurar_entorno(carpetas=('dataset',)):
       figuras) y DATA es /content. Cada carpeta de `carpetas` se copia a /content,
       porque leer miles de archivos chicos desde Drive es muy lento. Si existe
       <carpeta>.zip en Drive, se descomprime (es mucho más rápido que copiar).
+      Una carpeta puede tener subcarpetas, por ejemplo 'datos/dataset_unet' busca
+      datos/dataset_unet.zip y lo deja en /content/datos/dataset_unet.
     """
     en_colab = 'google.colab' in sys.modules
     data = Path('/content') if en_colab else ROOT
@@ -158,8 +162,8 @@ def quitar_copias_de_test(df):
 
 
 def cargar_rechazadas():
-    """Lee masks/rechazadas.txt: fotos con la máscara mal (no entrenan la UNet)."""
-    texto = (ROOT / 'masks' / 'rechazadas.txt').read_text(encoding='utf-8')
+    """Lee datos/masks/rechazadas.txt: fotos con la máscara mal (no entrenan la UNet)."""
+    texto = (MASKS / 'rechazadas.txt').read_text(encoding='utf-8')
     return [linea.strip() for linea in texto.splitlines() if linea.strip()]
 
 

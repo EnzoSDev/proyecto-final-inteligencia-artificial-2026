@@ -59,7 +59,7 @@ Si el humano pide cambiar una decisión, actualizá **los tres lugares**: `docs/
 ## 6. Errores comunes a evitar
 - **Archivos que no son imágenes:** puede aparecer `desktop.ini` en `dataset/`. Filtrá siempre por extensión (`.jpg`, `.jpeg`, `.png`) y **en minúsculas**, porque hay archivos `.JPG`.
 - **PNG con transparencia:** convertí siempre a RGB de 3 canales al cargar.
-- **No regenerar `splits.csv`** si ya existe. Es la división única de los datos y tiene que ser **idéntica** para A, B y la UNet. Regenerarlo invalida las comparaciones.
+- **No regenerar `datos/splits.csv`** si ya existe. Es la división única de los datos y tiene que ser **idéntica** para A, B y la UNet. Regenerarlo invalida las comparaciones.
 - **Fuga de datos:** la UNet no se entrena con imágenes del split *test* del clasificador, y las métricas se reportan solo sobre *test*.
 - **Rutas:** nada de rutas absolutas de Windows ni `/content/...` fijas. Todo sale de `utils.configurar_entorno()` (`ROOT`/`DATA`), para que funcione igual en local y en Colab.
 - **Colab:** no reinstalar TensorFlow. Copiar el dataset a `/content` para leerlo rápido y guardar los resultados en Drive.
@@ -67,7 +67,7 @@ Si el humano pide cambiar una decisión, actualizá **los tres lugares**: `docs/
 - **Notebooks:** generalos con `nbformat` desde un script; no escribas el JSON a mano. El código reutilizable va en `utils.py`, no duplicado entre notebooks.
 - **Grad-CAM:** construí el clasificador sin anidar el backbone (con `base.input`/`base.output`).
 - **Figuras:** letra grande (≥ 16), porque van a la presentación. Guardalas con `utils.guardar_figura()` en `figuras/`.
-- **Archivos generados** (`models/`, `figuras/`, `resultados/`, `masks/auto/`, `dataset_segmentado/`) están en `.gitignore`: no los fuerces al repo.
+- **Archivos generados** (`models/`, `figuras/`, `resultados/`, `datos/masks/auto/`, `datos/dataset_unet/`, `datos/dataset_segmentado/`) están en `.gitignore`: no los fuerces al repo.
 
 ## 7. Entorno
 - **Local:** Windows 11, Python 3.11, TensorFlow 2.21, sin GPU. OpenCV y Gradio pueden no estar instalados: se instalan con `pip install -r requirements.txt` (si el archivo ya existe).

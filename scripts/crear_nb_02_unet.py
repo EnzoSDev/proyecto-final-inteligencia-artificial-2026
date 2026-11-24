@@ -34,7 +34,7 @@ hoja o fondo. Su salida es una máscara: blanco = hoja, negro = fondo.
 con `SMOKE=1`.
 
 **Antes de abrirlo en Colab:** subir a `Mi unidad/Proyecto_Final_IA/` el archivo
-`dataset_unet.zip`, que se genera con `python scripts/armar_dataset_unet.py`.
+`datos/dataset_unet.zip` (dentro de una carpeta `datos/`), que se genera con `python scripts/armar_dataset_unet.py`.
 """)
 
 md("""
@@ -52,7 +52,7 @@ if EN_COLAB:
     sys.path.insert(0, '/content/drive/MyDrive/Proyecto_Final_IA')
 
 import utils
-entorno = utils.configurar_entorno(['dataset_unet'])
+entorno = utils.configurar_entorno(['datos/dataset_unet'])
 ROOT, DATA = entorno['ROOT'], entorno['DATA']
 """)
 
@@ -97,7 +97,7 @@ LADO = utils.IMG_SEG             # 160
 FACTOR_MANCHA = 4                # repetir mancha_bacteriana solo en train (tiene solo 60 fotos)
 FACTOR_MANUAL_TRAIN = 3          # dar más peso a fotos difíciles de train corregidas a mano (si existen)
 
-CARPETA = DATA / 'dataset_unet'
+CARPETA = DATA / 'datos' / 'dataset_unet'
 NOMBRE = 'unet_smoke' if SMOKE else 'unet'          # la prueba no pisa el modelo real
 RUTA_MODELO = ROOT / 'models' / f'{NOMBRE}.keras'
 RUTA_MODELO.parent.mkdir(exist_ok=True)
@@ -107,7 +107,7 @@ print('SMOKE =', SMOKE, '| modelo:', RUTA_MODELO.name)
 
 md("""
 ## 3. Cargar los datos
-`dataset_unet/` ya tiene todo listo en 160×160: en `images/` las fotos y en `masks/` sus
+`datos/dataset_unet/` ya tiene todo listo en 160×160: en `images/` las fotos y en `masks/` sus
 máscaras, **con el mismo nombre de archivo**.
 
 | Parte | Fotos | Máscaras | Para qué |
@@ -421,6 +421,53 @@ plt.show()
 """)
 
 md("""
+## 7b. Aumentación al predecir (TTA)
+Idea de Enzo. Le pedimos la máscara a la UNet **8 veces** por foto: normal y espejada, cada una
+rotada 0°, 90°, 180° y 270°. Cada máscara se vuelve a su posición original y se **promedian**.
+Si la red se equivoca en una posición pero no en las otras, el promedio corrige el error.
+
+No hay que volver a entrenar: se usa el mismo modelo.
+
+**Primero lo medimos en val** para decidir si sirve. Test se mira después, así no elegimos
+mirando el examen.
+
+**Resultado con la v6: no mejoró** (val 0.973 → 0.973, test 0.941 → 0.941). Ver conclusiones.
+""")
+
+code("""
+def predecir_tta(X):
+    suma = 0
+    for espejar in [False, True]:
+        for k in range(4):                                   # k = 0, 1, 2, 3 -> 0°, 90°, 180°, 270°
+            Xa = X[:, :, ::-1] if espejar else X             # espejar izquierda-derecha
+            Xa = np.rot90(Xa, k, axes=(1, 2))                # rotar
+            P = model.predict(np.ascontiguousarray(Xa), batch_size=BATCH, verbose=0)
+            P = np.rot90(P, -k, axes=(1, 2))                 # deshacer la rotación
+            if espejar:
+                P = P[:, :, ::-1]                            # deshacer el espejo
+            suma = suma + P
+    return suma / 8                                          # promedio de las 8 máscaras
+
+
+P_val = model.predict(X_val, batch_size=BATCH, verbose=0)
+P_val_tta = predecir_tta(X_val)
+iou_val = np.mean([iou(Y_val[i], P_val[i]) for i in range(len(X_val))])
+iou_val_tta = np.mean([iou(Y_val[i], P_val_tta[i]) for i in range(len(X_val))])
+print(f'Val  ->  UNet: {iou_val:.3f}   UNet + TTA: {iou_val_tta:.3f}')
+""")
+
+code("""
+P_test_tta = predecir_tta(X_test)
+res['iou_tta'] = [iou(Y_test[i], P_test_tta[i]) for i in range(len(X_test))]
+
+tabla_tta = res.groupby('clase')[['iou_unet', 'iou_tta', 'iou_truco']].mean()
+tabla_tta.loc['PROMEDIO'] = res[['iou_unet', 'iou_tta', 'iou_truco']].mean()
+tabla_tta.columns = ['UNet', 'UNet + TTA', 'Truco automático']
+print(tabla_tta.round(3).to_string())
+print('\\nFotos donde TTA mejora a la UNet:', (res['iou_tta'] > res['iou_unet']).sum(), 'de', len(res))
+""")
+
+md("""
 ## 8. Mirar los resultados
 Los números no alcanzan: hay que **ver** dónde acierta y dónde falla. Mostramos las 4 fotos
 con mejor IoU y las 4 con peor. Contorno **verde** = máscara correcta (a mano);
@@ -459,7 +506,7 @@ md("""
 Resultados reales en las 50 fotos de test (con máscaras corregidas a mano) de la **UNet v6**
 (`MobileNetV2` preentrenado en ImageNet + decodificador UNet con salto en 160×160, entrenada
 en 2 fases con `BCE + Dice Loss`, balanceo ×4 de `mancha_bacteriana` y **39 fotos difíciles
-de `train` corregidas a mano** en `masks/manual_train/` con peso ×3):
+de `train` corregidas a mano** en `datos/masks/manual_train/` con peso ×3):
 
 - **IoU promedio de la UNet en test:** **0.941** (mediana **0.967**; **45/50** fotos ≥ 0.90
   y **39/50** ≥ 0.95), con un modelo compacto de **5,60M parámetros / 65 MB** (vs 31M / 356 MB
@@ -480,6 +527,10 @@ de `train` corregidas a mano** en `masks/manual_train/` con peso ×3):
   Spot_97`, 0.53, tiene 3 hojas separadas ya en `rechazadas.txt`, y `Bacterial Leaf Spot_56`,
   0.66, es una rama larga casi sin hoja). Las fotos de viñedo real (`395` y `8`, ambas en `0.78`)
   mejoraron fuerte, aunque para uso general en campo harían falta más fotos de viñedo etiquetadas.
+- **Aumentación al predecir (TTA, sección 7b): la probamos y no mejoró.** Promediar las 8 máscaras
+  (normal y espejada, rotada 0°, 90°, 180° y 270°) dio lo mismo que predecir una vez: val
+  **0.973 → 0.973** y test **0.941 → 0.941**. La red ya se entrenó con espejados y rotaciones de
+  90°, así que predice casi igual en cualquier posición y promediar no agrega nada.
 
 El modelo quedó guardado en `models/unet.keras`. Lo usan el notebook 03 (para recortar las
 hojas) y la app.

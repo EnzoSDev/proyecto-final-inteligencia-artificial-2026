@@ -1,10 +1,10 @@
 """Corregir a mano máscaras pintando sobre la foto.
 
 Uso (desde la carpeta del proyecto, con el entorno virtual activado):
-    python scripts/corregir_mascaras.py enzo           -> 25 fotos de test (masks/manual/)
-    python scripts/corregir_mascaras.py tato           -> las otras 25 de test (masks/manual/)
-    python scripts/corregir_mascaras.py enzo --train   -> 20 fotos difíciles de train (masks/manual_train/)
-    python scripts/corregir_mascaras.py tato --train   -> las otras 20 de train (masks/manual_train/)
+    python scripts/corregir_mascaras.py enzo           -> 25 fotos de test (datos/masks/manual/)
+    python scripts/corregir_mascaras.py tato           -> las otras 25 de test (datos/masks/manual/)
+    python scripts/corregir_mascaras.py enzo --train   -> 20 fotos difíciles de train (datos/masks/manual_train/)
+    python scripts/corregir_mascaras.py tato --train   -> las otras 20 de train (datos/masks/manual_train/)
     python scripts/corregir_mascaras.py todas --train  -> las 40 fotos difíciles de train
 
 Lo que queda en color es HOJA; lo oscuro es FONDO. La línea roja es el borde.
@@ -32,16 +32,16 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 import utils
 
-MANUAL = ROOT / 'masks' / 'manual'
+MANUAL = utils.MASKS / 'manual'
 LADO = 600        # tamaño de la foto en pantalla (la máscara sigue siendo de 256x256)
 ALTO_TEXTO = 60
 VENTANA = 'Corregir mascaras'
 
 
 def ruta_mascara(path, carpeta):
-    """dataset/<clase>/foto.jpg -> masks/<carpeta>/<clase>/foto.png"""
+    """dataset/<clase>/foto.jpg -> datos/masks/<carpeta>/<clase>/foto.png"""
     p = Path(path)
-    return ROOT / 'masks' / carpeta / p.parent.name / f'{p.stem}.png'
+    return utils.MASKS / carpeta / p.parent.name / f'{p.stem}.png'
 
 
 def leer_mascara(ruta):
@@ -66,7 +66,7 @@ class Editor:
     def __init__(self, fotos, quien, carpeta='manual'):
         self.fotos = fotos
         self.carpeta = carpeta
-        self.dir_manual = ROOT / 'masks' / carpeta
+        self.dir_manual = utils.MASKS / carpeta
         self.ruta_revisadas = self.dir_manual / f'revisadas_{quien}.txt'
         self.revisadas = set()
         if self.ruta_revisadas.exists():
@@ -171,7 +171,7 @@ class Editor:
         elif c == 'r':
             self.historial.append(self.mascara.copy())
             auto = ruta_mascara(self.path, 'auto')
-            # masks/auto/ no está en git: si no se generó, vuelve a como estaba al abrir.
+            # datos/masks/auto/ no está en git: si no se generó, vuelve a como estaba al abrir.
             self.mascara = leer_mascara(auto) if auto.exists() else self.original.copy()
         elif c == 'f':
             self.solo_foto = not self.solo_foto
@@ -208,7 +208,7 @@ if __name__ == '__main__':
     if quien not in ('enzo', 'tato', 'todas'):
         sys.exit('Uso: python scripts/corregir_mascaras.py enzo|tato|todas [--train]')
     carpeta = 'manual_train' if es_train else 'manual'
-    lista_path = ROOT / 'masks' / carpeta / 'LISTA.txt'
+    lista_path = utils.MASKS / carpeta / 'LISTA.txt'
     if not lista_path.exists():
         sys.exit(f'No existe {lista_path}')
     lista = [x.strip() for x in lista_path.read_text(encoding='utf-8').splitlines() if x.strip()]

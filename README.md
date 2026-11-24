@@ -152,7 +152,7 @@ Como **preprocesado**, sacamos las copias y nos quedamos con **2393 fotos distin
 **¿Por qué sacar las copias?** Si una foto está repetida y una copia cae en entrenamiento y la otra
 en prueba, la red "ya la vio" y las métricas salen mejores de lo real. Además, las sanas contaban doble.
 Las detectamos con una "huella" del archivo (MD5): dos archivos idénticos dan la misma huella.
-No borramos nada de `dataset/`: solo las dejamos afuera de la lista (`splits.csv`).
+No borramos nada de `dataset/`: solo las dejamos afuera de la lista (`datos/splits.csv`).
 
 **Copias que el MD5 no detecta.** Después de dividir los datos encontramos **324 copias más**, vueltas a
 comprimir o con el fondo cambiado (310 son de sanas). Se ven iguales, pero el archivo es distinto. Con la
@@ -200,18 +200,28 @@ Los notebooks están en la raíz para que `import utils` funcione igual en la co
 | Carpeta | Qué hay | ¿En git? |
 |---|---|---|
 | `dataset/` | Fotos originales (**no se modifican**) | Sí |
-| `masks/` | `rechazadas.txt` y `manual/` (las 50 corregidas a mano); `auto/` se genera | Solo lo manual |
-| `scripts/` | Generadores de notebooks y herramientas (armar `dataset_unet/`, corregir máscaras) | Sí |
-| `recursos/` | Notebooks de referencia: la UNet original y las pruebas de Enzo | Sí |
-| `app/` | La aplicación de demo (Gradio) *(pendiente)* | Sí |
-| `docs/` | Consigna, papers y plan para el agente | Sí |
+| `datos/` | Todo lo que armamos a partir de `dataset/` (ver abajo) | En parte |
+| `scripts/` | Generadores de notebooks y herramientas (armar `datos/dataset_unet/`, corregir máscaras) | Sí |
+| `docs/` | Consigna, papers, plan para el agente y `referencias/` (la UNet original, las pruebas de Enzo y su versión simple del notebook 02) | Sí |
 | `avances/` | Registro de todo lo que hacemos, día por día | Sí |
-| `dataset_unet/` | Fotos y máscaras listas para la UNet (`python scripts/armar_dataset_unet.py`) | No, se genera |
 | `figuras/`, `models/`, `resultados/` | Salidas de los notebooks | No, se generan |
+| `app/` | La aplicación de demo (Gradio) *(pendiente: se crea cuando la armemos)* | Sí |
+| `.venv/` | Entorno virtual de Python (oculto) | No |
 
-**Archivos sueltos:** `utils.py` (funciones compartidas), `splits.csv` (división única train/val/test),
-`casi_duplicados.csv` (grupos de fotos repetidas), `requirements.txt` (librerías) y
+**Adentro de `datos/`:**
+
+| Archivo o carpeta | Qué hay | ¿En git? |
+|---|---|---|
+| `splits.csv` | División única train/val/test (**no se regenera**) | Sí |
+| `casi_duplicados.csv` | Grupos de fotos repetidas que el MD5 no detecta | Sí |
+| `masks/` | `rechazadas.txt`, `manual/` (las 50 de test corregidas a mano) y `manual_train/` (39 difíciles de train corregidas a mano); `auto/` se genera | Solo lo manual |
+| `dataset_unet/` y `dataset_unet.zip` | Fotos y máscaras listas para la UNet (`python scripts/armar_dataset_unet.py`) | No, se generan |
+
+**Archivos sueltos en la raíz:** `utils.py` (funciones compartidas), `requirements.txt` (librerías) y
 `AGENTS.md` / `CLAUDE.md` (instrucciones para agentes de IA).
+
+**Entorno virtual:** `python -m venv .venv`, después `.venv\Scriptsctivate` y
+`pip install -r requirements.txt`. En VSCode, elegir `.venv` como intérprete y kernel.
 
 **¿Vas a trabajar con un agente de IA (Claude Code, Codex, Cursor...)?** No hace falta
 explicarle nada: lee solo `AGENTS.md`, que le dice qué leer, qué reglas seguir y cómo
@@ -227,7 +237,8 @@ una placa de video (GPU) gratis: lo que en la compu tarda una hora, en Colab tar
 
 **Una sola vez:**
 1. Crear en Google Drive la carpeta `Mi unidad/Proyecto_Final_IA/`.
-2. Subir ahí toda la carpeta del proyecto (el dataset pesa solo 32 MB).
+2. Subir ahí toda la carpeta del proyecto, **menos `.venv/`** (el dataset pesa solo 32 MB).
+   Se mantiene la misma estructura: por ejemplo, el zip de la UNet va en `datos/dataset_unet.zip`.
 3. Compartir esa carpeta con el compañero (con permiso de edición).
 
 **Cada vez que se trabaja:**

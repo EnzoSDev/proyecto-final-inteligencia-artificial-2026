@@ -8,15 +8,16 @@ __pycache__/
 
 # Generados por los notebooks (se regeneran)
 models/
-masks/auto/
+datos/masks/auto/
 dataset_segmentado/
-dataset_unet/
-dataset_unet.zip
+datos/dataset_unet/
+datos/dataset_unet.zip
 dataset_segmentado.zip
 figuras/
 resultados/
 
 #Entorno virtual
+.venv/
 proyecto-final-ia-2026-venv/
 
 # Registros de TensorBoard (se generan al entrenar)
