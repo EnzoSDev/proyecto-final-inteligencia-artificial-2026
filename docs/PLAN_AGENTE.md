@@ -77,7 +77,7 @@ datos/masks/auto/<clase>/<stem>.png       0/255, 256×256
 datos/masks/manual/<clase>/<stem>.png     corregidas a mano (test UNet)
 datos/masks/manual_train/<clase>/<stem>.png  39 fotos difíciles de train corregidas a mano (Tato); se usan con peso ×3
 datos/masks/rechazadas.txt                una ruta relativa por línea
-datos/dataset_segmentado/<clase>/<stem>.png
+datos/dataset_segmentado/<clase>/<stem>.png   256×256, fondo negro; generado por scripts/armar_dataset_segmentado.py (UNet v6 + limpieza, utils.segmentar_hoja/quitar_fondo); también datos/dataset_segmentado.zip
 datos/dataset_unet/{train,val,test}/{images,masks}/<stem>.png   160×160, generado por scripts/armar_dataset_unet.py (no va a git); también test/masks_auto/ y datos/dataset_unet.zip (para Colab: configurar_entorno(['datos/dataset_unet']))
 .venv/                        entorno virtual local (no va a git)
 models/  resultados/  figuras/

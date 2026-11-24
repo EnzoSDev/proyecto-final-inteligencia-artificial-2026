@@ -271,6 +271,24 @@ def limpiar_mascara(m):
     return ndimage.binary_fill_holes(m)              # rellena los agujeros de adentro
 
 
+def segmentar_hoja(model, foto):
+    """Usa la UNet para encontrar la hoja. Devuelve la máscara (True = hoja) del tamaño de la foto.
+
+    1. Achica la foto a 160x160 (lo que espera la UNet).
+    2. La UNet da, para cada píxel, la probabilidad de ser hoja.
+    3. Agranda esas probabilidades al tamaño original, corta en 0.5 y limpia la máscara.
+    """
+    chica = np.array(Image.fromarray(foto).resize((IMG_SEG, IMG_SEG), Image.BILINEAR))
+    prob = model(chica[None], training=False).numpy()[0, :, :, 0]
+    prob = np.array(Image.fromarray(prob).resize((foto.shape[1], foto.shape[0]), Image.BILINEAR))
+    return limpiar_mascara(prob > 0.5)
+
+
+def quitar_fondo(foto, mascara):
+    """Pinta de negro todo lo que no es hoja."""
+    return foto * mascara[..., None].astype(np.uint8)
+
+
 # ---------------------------------------------------------------------------
 # Pérdida de segmentación (UNet)
 # ---------------------------------------------------------------------------
