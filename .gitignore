@@ -26,3 +26,6 @@ logs/
 #Dataset para testear la Unet
 stage1_train/
 stage1_test/
+
+# Fotos externas para pruebas fuera de dominio
+datos/test_externo/
