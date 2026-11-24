@@ -35,6 +35,5 @@ dataset/mildiu/Downy Mildew_938.jpg
 dataset/mildiu/Downy Mildew_953.jpg
 dataset/mildiu/Downy Mildew_958.png
 dataset/mildiu/Downy Mildew_960.png
-dataset/mildiu/Downy Mildew_962.png
 dataset/oidio/Powdery Mildew_4.png
 dataset/oidio/Powdery Mildew_7.JPG

@@ -456,26 +456,30 @@ plt.show()
 
 md("""
 ## 9. Conclusiones
-Resultados reales en las 50 fotos de test (con máscaras corregidas a mano) tras las mejoras
-de la v2 (filtros `32→512` con `BatchNormalization`, `BCE + Dice Loss`, aumentación de color
-y rotaciones de 90°, y balanceo ×4 de `mancha_bacteriana` en train):
+Resultados reales en las 50 fotos de test (con máscaras corregidas a mano) de la **UNet v6**
+(`MobileNetV2` preentrenado en ImageNet + decodificador UNet con salto en 160×160, entrenada
+en 2 fases con `BCE + Dice Loss`, balanceo ×4 de `mancha_bacteriana` y **39 fotos difíciles
+de `train` corregidas a mano** en `masks/manual_train/` con peso ×3):
 
-- **IoU promedio de la UNet en test:** **0.931** (mediana **0.968**; 38/50 fotos ≥ 0.95 y 43/50 ≥ 0.90).
-  Subió desde **0.919** en la v1, mejorando en 45 de las 50 fotos y con un modelo 4× más liviano
-  (7,77M parámetros / 90 MB vs 31M / 356 MB).
-- **IoU promedio del truco automático:** **0.934** (mediana 0.985). La UNet empata en `mildiu`
-  (0.930 vs 0.931), supera al truco en `oidio` (0.930 vs 0.893) y le gana con holgura en las
-  fotos difíciles donde el truco falla fuerte (`Bacterial Leaf Spot_3`: 0.960 vs 0.327;
-  `Powdery Mildew_395`: 0.603 vs 0.057; `Downy Mildew_852`: 0.674 vs 0.514).
-- **Dónde falla más (las únicas 4 fotos debajo de 0.80):** una rama casi sin hoja
-  (`Bacterial Leaf Spot_56`, 0.53), un fondo de viñedo verde sin ejemplos similares en train
-  (`Powdery Mildew_395`, 0.60), una foto con 3 hojas separadas ya rechazada por la regla de
-  una hoja por foto (`Bacterial Leaf Spot_97`, 0.62) y una mancha blanquecina grande tocando
-  el borde (`Downy Mildew_852`, 0.67).
-
-**Recordar:** la UNet aprendió de máscaras automáticas con errores, así que puede repetirlos.
-Además, el test son solo 50 fotos y casi todas tienen fondo liso: no sabemos cómo segmenta
-fotos sacadas en el viñedo.
+- **IoU promedio de la UNet en test:** **0.941** (mediana **0.967**; **45/50** fotos ≥ 0.90
+  y **39/50** ≥ 0.95), con un modelo compacto de **5,60M parámetros / 65 MB** (vs 31M / 356 MB
+  de la v1 inicial).
+- **Supera al truco automático (`0.934`) en promedio general (`+0.007`)**, incluso a pesar de
+  que las máscaras manuales de test partieron de las automáticas (9 sin tocar = 1.000 para el
+  truco):
+  - `mildiu`: **0.958** vs 0.931 (`+0.028`)
+  - `oidio`: **0.938** vs 0.893 (`+0.045`)
+  - `hojas_sanas`: **0.968** vs 0.983 (`-0.015`)
+  - `mancha_bacteriana`: **0.896** vs 0.926 (`-0.030`)
+- **Impacto comprobado de los datos sobre la arquitectura (v1–v5 → v6):** 5 iteraciones de
+  arquitectura y aumentación (`v1`–`v5`) habían chocado contra un techo de `0.931`; corregir
+  a mano solo 39 casos difíciles de `train` disparó `Downy Mildew_852` (`0.72 → 0.94`, truco
+  `0.51`), `Downy Mildew_838` (`0.84 → 0.96`, truco `0.83`), `Powdery Mildew_395` con fondo
+  verde de viñedo (`0.59 → 0.78`, truco `0.06`) y `Bacterial Leaf Spot_56` (`0.60 → 0.66`).
+- **Límites restantes:** las únicas 2 fotos por debajo de `0.75` son atípicas (`Bacterial Leaf
+  Spot_97`, 0.53, tiene 3 hojas separadas ya en `rechazadas.txt`, y `Bacterial Leaf Spot_56`,
+  0.66, es una rama larga casi sin hoja). Las fotos de viñedo real (`395` y `8`, ambas en `0.78`)
+  mejoraron fuerte, aunque para uso general en campo harían falta más fotos de viñedo etiquetadas.
 
 El modelo quedó guardado en `models/unet.keras`. Lo usan el notebook 03 (para recortar las
 hojas) y la app.
