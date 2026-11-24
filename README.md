@@ -118,7 +118,7 @@ corresponden al ingeniero agrónomo."*
 - Es como estudiar y rendir: el notebook es estudiar (lento, una vez) y la app es rendir (un segundo, cada vez que alguien sube una foto).
 
 **Qué hace la app con cada foto:**
-1. **UNet** (`unet.keras`): calcula la máscara de la hoja.
+1. **UNet** (`unet.keras`): calcula la máscara de la hoja y la limpia (se queda con la mancha más grande y rellena agujeros, porque hay una sola hoja por foto).
 2. **Recorte:** borra el fondo con la misma función del notebook.
 3. **CNN** (`clf_B.keras`): calcula las probabilidades de cada clase.
 4. **Grad-CAM:** arma el mapa de calor.

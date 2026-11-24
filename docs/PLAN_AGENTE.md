@@ -25,6 +25,7 @@ Experimento central: comparar clasificador entrenado sobre **A = imágenes origi
 - Ejecutar notebooks con `jupyter nbconvert --to notebook --execute --inplace <nb> --ExecutePreprocessor.timeout=-1`. Tareas largas: ejecutar en background.
 
 ## 2.1. Una hoja por foto (decisión 2026-11-22)
+- **Limpieza de la máscara (decisión 2026-11-24, Enzo):** toda máscara que predice la UNet pasa por `utils.limpiar_mascara()` (mancha más grande + rellenar agujeros), con umbral 0.5: en el notebook 02, al generar `datos/dataset_segmentado/` y en la app. Elegido en val; en test sube el IoU de 0.941 a 0.955.
 - El sistema asume **una sola hoja principal por foto** (la salida es una clase por imagen). La app (Gradio) debe indicarlo al pedir la foto. No segmentar varias hojas por separado.
 - `datos/masks/rechazadas.txt`: se rechaza **por la máscara, no por la foto** (p. ej. máscaras que unen varias hojas o pierden parte de la hoja). Fondo complejo con buena máscara → se conserva.
 - Las rechazadas se excluyen **solo** del entrenamiento de la UNet (train/val); siguen en `splits.csv` para los clasificadores. Antes de entrenar, comprobar que todas las rutas de `rechazadas.txt` existan en `splits.csv`.

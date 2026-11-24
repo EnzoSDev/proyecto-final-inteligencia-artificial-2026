@@ -468,6 +468,68 @@ print('\\nFotos donde TTA mejora a la UNet:', (res['iou_tta'] > res['iou_unet'])
 """)
 
 md("""
+## 7c. Limpiar la máscara y elegir el umbral
+Dos ajustes que **no necesitan volver a entrenar**: se aplican a lo que ya predice la UNet.
+
+1. **Limpiar:** como hay una sola hoja por foto, nos quedamos con la **mancha blanca más grande**
+   (se borran puntitos sueltos) y **rellenamos los agujeros** que quedan adentro de la hoja.
+2. **Umbral:** hasta ahora, más de 0.5 = hoja. Probamos otros valores.
+
+Elegimos la mejor combinación **en val** y después la miramos en test.
+
+**Ojo:** las máscaras de val son automáticas y a veces tienen agujeros en las zonas enfermas.
+Por eso rellenar agujeros puede salir peor en val aunque esté bien.
+
+**Resultado con la v6:** el mejor umbral en val es 0.5, con limpieza. En test sube de 0.941 a
+0.955, pero casi todo por 2 fotos de mancha bacteriana (ver conclusiones).
+""")
+
+code("""
+# utils.limpiar_mascara: deja la mancha blanca más grande y rellena sus agujeros.
+# Está en utils.py porque también la usan el notebook 03 y la app.
+limpiar = utils.limpiar_mascara
+
+
+def iou_promedio(Y, P, umbral, con_limpieza):
+    valores = []
+    for i in range(len(Y)):
+        m = P[i, :, :, 0] > umbral
+        if con_limpieza:
+            m = limpiar(m)
+        valores.append(iou(Y[i], m[..., None]))
+    return np.mean(valores)
+
+
+filas = []
+for umbral in [0.3, 0.4, 0.5, 0.6, 0.7]:
+    for con_limpieza in [False, True]:
+        filas.append({'umbral': umbral, 'limpiar': con_limpieza,
+                      'iou_val': iou_promedio(Y_val, P_val, umbral, con_limpieza)})
+tabla_val = pd.DataFrame(filas)
+print(tabla_val.round(4).to_string(index=False))
+
+mejor = tabla_val.loc[tabla_val['iou_val'].idxmax()]
+UMBRAL, LIMPIAR = float(mejor['umbral']), bool(mejor['limpiar'])
+print(f'\\nMejor en val: umbral {UMBRAL}, limpiar = {LIMPIAR}')
+""")
+
+code("""
+def mascara_final(p, umbral, con_limpieza):
+    m = p[:, :, 0] > umbral
+    return limpiar(m) if con_limpieza else m
+
+
+res['iou_limpia'] = [iou(Y_test[i], mascara_final(P_test[i], 0.5, True)[..., None]) for i in range(len(X_test))]
+res['iou_elegida'] = [iou(Y_test[i], mascara_final(P_test[i], UMBRAL, LIMPIAR)[..., None]) for i in range(len(X_test))]
+
+columnas = ['iou_unet', 'iou_limpia', 'iou_elegida', 'iou_truco']
+tabla_7c = res.groupby('clase')[columnas].mean()
+tabla_7c.loc['PROMEDIO'] = res[columnas].mean()
+tabla_7c.columns = ['UNet (0.5)', 'UNet + limpiar (0.5)', f'Elegida en val ({UMBRAL}, limpiar={LIMPIAR})', 'Truco']
+print(tabla_7c.round(3).to_string())
+""")
+
+md("""
 ## 8. Mirar los resultados
 Los números no alcanzan: hay que **ver** dónde acierta y dónde falla. Mostramos las 4 fotos
 con mejor IoU y las 4 con peor. Contorno **verde** = máscara correcta (a mano);
@@ -531,6 +593,12 @@ de `train` corregidas a mano** en `datos/masks/manual_train/` con peso ×3):
   (normal y espejada, rotada 0°, 90°, 180° y 270°) dio lo mismo que predecir una vez: val
   **0.973 → 0.973** y test **0.941 → 0.941**. La red ya se entrenó con espejados y rotaciones de
   90°, así que predice casi igual en cualquier posición y promediar no agrega nada.
+- **Limpiar la máscara (sección 7c): sí mejoró.** Quedarse con la mancha más grande y rellenar
+  agujeros sube el promedio en test de **0.941 a 0.955** (`mancha_bacteriana`: 0.896 → 0.952).
+  El umbral que mejor anda en val es el mismo 0.5, y en val el cambio es mínimo (0.9726 → 0.9728).
+  **Casi toda la mejora sale de 2 fotos:** `Bacterial Leaf Spot_97` (0.535 → 0.943; tiene varias
+  hojas y está en `rechazadas.txt`) y `Bacterial Leaf Spot_56` (0.663 → 0.926; se borran los
+  pedazos de tallo sueltos). Las otras 48 cambian como mucho 0.006.
 
 El modelo quedó guardado en `models/unet.keras`. Lo usan el notebook 03 (para recortar las
 hojas) y la app.

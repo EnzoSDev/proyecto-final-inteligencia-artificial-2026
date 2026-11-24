@@ -256,6 +256,21 @@ def es_sospechosa(mascara, minimo=0.02, maximo=0.95):
     return area < minimo or area > maximo
 
 
+def limpiar_mascara(m):
+    """Limpia la máscara que predice la UNet (True = hoja).
+
+    Como hay una sola hoja por foto, deja solo la mancha blanca más grande (borra
+    pedacitos sueltos) y rellena los agujeros de adentro. Se usa siempre después de
+    la UNet: en el notebook 02, al recortar las fotos y en la app.
+    """
+    from scipy import ndimage
+    etiquetas, n = ndimage.label(m)                  # numera cada mancha blanca separada
+    if n > 1:
+        tamanios = ndimage.sum(m, etiquetas, range(1, n + 1))
+        m = etiquetas == (np.argmax(tamanios) + 1)   # deja solo la más grande
+    return ndimage.binary_fill_holes(m)              # rellena los agujeros de adentro
+
+
 # ---------------------------------------------------------------------------
 # Pérdida de segmentación (UNet)
 # ---------------------------------------------------------------------------
