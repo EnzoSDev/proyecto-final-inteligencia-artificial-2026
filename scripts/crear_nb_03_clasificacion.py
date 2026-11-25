@@ -25,10 +25,13 @@ Experimento central del proyecto: entrenamos **el mismo clasificador (`MobileNet
 dos veces, con exactamente las mismas imágenes y los mismos 5 folds:
 
 - **Modelo A (con fondo):** fotos originales de `dataset/`.
-- **Modelo B (sin fondo):** las mismas fotos recortadas por la UNet v6 (`datos/dataset_segmentado/`).
+- **Modelo B (sin fondo):** las mismas fotos segmentadas por la UNet v6 (`datos/dataset_segmentado/`),
+  recortadas al **cuadro ajustado de la hoja (*bounding box*)** y rellenadas con **gris neutro `128`**
+  (ver `utils.recortar_a_hoja()`).
 
-Así medimos si quitar el fondo mejora la clasificación y, con **Grad-CAM**, comprobamos
-visualmente si el modelo A se guiaba por el fondo y si el modelo B se enfoca en la hoja.
+Así medimos si quitar el fondo mejora la clasificación (tanto en el test interno como en fotos
+externas de campo) y, con **Grad-CAM**, comprobamos visualmente si el modelo A se guiaba por el
+fondo y si el modelo B se enfoca en la hoja.
 
 **Alcance:** el sistema solo informa la clase predicha y sus probabilidades (**no da recomendaciones**
 agronómicas; las decisiones corresponden al ingeniero agrónomo). Es una aproximación: las manchas
@@ -83,7 +86,7 @@ md("""
 
 code("""
 SMOKE = os.environ.get('SMOKE') == '1'
-REENTRENAR = False
+REENTRENAR = os.environ.get('REENTRENAR') == '1'
 
 N_FOLDS = 2 if SMOKE else 5
 EPOCAS_F1 = 1 if SMOKE else 10    # Fase 1: MobileNetV2 congelada (entrena la cabeza)
@@ -91,6 +94,8 @@ EPOCAS_F2 = 1 if SMOKE else 20    # Fase 2: fine-tuning de las últimas capas
 CAPAS_FINETUNE = 35               # últimas capas de MobileNetV2 a descongelar (sin BN)
 LR_F1 = 1e-3
 LR_F2 = 1e-4
+LABEL_SMOOTHING = 0.05            # evita sobreconfianza extrema fuera de dominio
+FONDO_B = 128                     # gris neutro -> entra como 0.0 en MobileNetV2 [-1, +1]
 BATCH = utils.BATCH               # 32
 LADO = utils.IMG_CLF              # 224
 
@@ -140,8 +145,15 @@ print(df_cv['clase'].value_counts().reindex(utils.CLASES).to_string())
 
 code("""
 def cargar_imagenes(df_sub, modo):
-    rutas = df_sub['path'] if modo == 'A' else [utils.ruta_segmentada(p) for p in df_sub['path']]
-    X = np.asarray([utils.cargar_imagen(p, LADO, base=DATA) for p in rutas], dtype=np.uint8)
+    if modo == 'A':
+        X = np.asarray([utils.cargar_imagen(p, LADO, base=DATA) for p in df_sub['path']], dtype=np.uint8)
+    else:
+        rutas = [utils.ruta_segmentada(p) for p in df_sub['path']]
+        X = np.asarray(
+            [utils.recortar_a_hoja(utils.cargar_imagen(p, base=DATA), margen=0.05, fondo=FONDO_B, lado=LADO)
+             for p in rutas],
+            dtype=np.uint8,
+        )
     y = df_sub['label'].to_numpy(dtype=np.int32)
     return X, y
 
@@ -168,13 +180,18 @@ plt.show()
 """)
 
 md("""
-## 4. El clasificador (`MobileNetV2` en 2 fases)
+## 4. El clasificador (`MobileNetV2` en 2 fases — receta `v4d`)
 - **Sin anidar el backbone:** conectamos `Rescaling(1/127.5, -1)` directo a `MobileNetV2(input_tensor=...)`
   para acceder luego a su última capa convolucional (`out_relu`) y calcular **Grad-CAM**.
-- **Desbalanceo (`mancha_bacteriana` tiene muchas menos fotos):** usamos `class_weight` balanceado
-  para que equivocarse en una clase chica penalice más.
-- **Aumentación (solo train):** espejado H/V, rotaciones de 90° y cambios suaves de brillo/contraste
-  (no cambiamos tono ni saturación para no alterar los colores de las manchas).
+- **Preprocesado de B (`utils.recortar_a_hoja`):** recorte al cuadro ajustado de la hoja (+5% margen,
+  sin deformar) sobre **fondo gris neutro `128`** (entra como `0.0` en `[-1, +1]`), eliminando el
+  atajo "hoja chica / mucho negro = `mancha_bacteriana`".
+- **Desbalanceo suavizado + `label_smoothing=0.05`:** usamos la raíz cuadrada de los pesos balanceados
+  (`sqrt(balanced)`) en vez de `balanced` puro para dar peso extra a `mancha_bacteriana` (~×2,4 en vez
+  de ×5,7) sin sobre-dispararla en fotos de campo, junto con suavizado de etiquetas (`0.05`).
+- **Aumentación (solo train, idéntica para A y B):** espejado H/V, rotaciones de 90°, **recorte/zoom
+  aleatorio suave (80–100%)** y cambios suaves de brillo/contraste (±15%). No tocamos tono ni
+  saturación para no lavar los síntomas de mildiu (amarillo) ni oidio (blanco).
 - **2 fases:**
   1. **Congelada (`lr = 1e-3`):** entrena solo la cabeza final (`Dense(4, softmax)`).
   2. **Fine-tuning (`lr = 1e-4`):** descongela las últimas 35 capas de `MobileNetV2` (dejando
@@ -190,14 +207,18 @@ def aumentar(foto, etiqueta):
     foto = tf.cond(flip_v, lambda: tf.image.flip_up_down(foto), lambda: foto)
     k = tf.random.uniform((), minval=0, maxval=4, dtype=tf.int32)
     foto = tf.image.rot90(foto, k)
-    foto = tf.image.random_brightness(foto, max_delta=0.12)
-    foto = tf.image.random_contrast(foto, lower=0.88, upper=1.12)
+    escala = tf.random.uniform((), minval=0.80, maxval=1.0)
+    c_tam = tf.cast(tf.round(escala * LADO), tf.int32)
+    foto = tf.image.random_crop(foto, size=[c_tam, c_tam, 3])
+    foto = tf.image.resize(foto, [LADO, LADO])
+    foto = tf.image.random_brightness(foto, max_delta=0.15)
+    foto = tf.image.random_contrast(foto, lower=0.85, upper=1.15)
     foto = tf.clip_by_value(foto, 0.0, 1.0) * 255.0
     return foto, etiqueta
 
 
-def armar_dataset(X, y, entrenar=False):
-    ds = tf.data.Dataset.from_tensor_slices((X, y))
+def armar_dataset(X, y_oh, entrenar=False):
+    ds = tf.data.Dataset.from_tensor_slices((X, y_oh))
     if entrenar:
         ds = ds.shuffle(len(X), seed=utils.SEED).map(aumentar, num_parallel_calls=tf.data.AUTOTUNE)
     return ds.batch(BATCH).prefetch(tf.data.AUTOTUNE)
@@ -220,11 +241,15 @@ def construir_clasificador():
 
 def entrenar_una_vez(X_tr, y_tr, X_va, y_va, seed=utils.SEED, verbose=0):
     tf.keras.utils.set_random_seed(seed)
-    pesos = compute_class_weight('balanced', classes=np.arange(len(utils.CLASES)), y=y_tr)
+    pesos = np.sqrt(compute_class_weight('balanced', classes=np.arange(len(utils.CLASES)), y=y_tr))
     class_weight = {i: float(p) for i, p in enumerate(pesos)}
 
-    ds_tr = armar_dataset(X_tr, y_tr, entrenar=True)
-    ds_va = armar_dataset(X_va, y_va, entrenar=False)
+    y_tr_oh = tf.keras.utils.to_categorical(y_tr, num_classes=len(utils.CLASES))
+    y_va_oh = tf.keras.utils.to_categorical(y_va, num_classes=len(utils.CLASES))
+    loss_fn = tf.keras.losses.CategoricalCrossentropy(label_smoothing=LABEL_SMOOTHING)
+
+    ds_tr = armar_dataset(X_tr, y_tr_oh, entrenar=True)
+    ds_va = armar_dataset(X_va, y_va_oh, entrenar=False)
 
     model, base = construir_clasificador()
 
@@ -233,7 +258,7 @@ def entrenar_una_vez(X_tr, y_tr, X_va, y_va, seed=utils.SEED, verbose=0):
         capa.trainable = False
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=LR_F1),
-        loss='sparse_categorical_crossentropy',
+        loss=loss_fn,
         metrics=['accuracy'],
     )
     h1 = model.fit(
@@ -249,7 +274,7 @@ def entrenar_una_vez(X_tr, y_tr, X_va, y_va, seed=utils.SEED, verbose=0):
         capa.trainable = not isinstance(capa, BatchNormalization)
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=LR_F2),
-        loss='sparse_categorical_crossentropy',
+        loss=loss_fn,
         metrics=['accuracy'],
     )
     h2 = model.fit(
@@ -463,22 +488,26 @@ plt.show()
 """)
 
 md("""
-## 8. Conclusiones (baseline MobileNetV2 — Modelo A vs Modelo B)
-Resultados obtenidos ejecutando la misma arquitectura (`MobileNetV2` 224×224, 2.263.108 parámetros,
-entrenamiento congelado + fine-tuning de las últimas 35 capas) sobre ambos datasets con los mismos
-5 folds por grupos y el mismo conjunto de test fijo:
+## 8. Conclusiones (entrenamiento oficial receta `v4d` — Modelo A vs Modelo B)
+Resultados obtenidos ejecutando exactamente la misma arquitectura (`MobileNetV2` 224×224,
+2.263.108 parámetros, 2 fases: congelada + fine-tuning de las últimas 35 capas, aumentación
+`zoom_suave`, pesos `sqrt(balanced)` y `label_smoothing=0.05`) sobre los mismos 5 folds por grupos
+y el mismo test fijo; para **B** se aplica además `utils.recortar_a_hoja()` (cuadro ajustado +5%
+margen sobre gris neutro `128`):
 
 - **Validación cruzada 5-fold por grupos (1.934 fotos sin copias de test, promedio ± desvío):**
-  - **Modelo A (con fondo):** Macro-F1 **`0.9757 ± 0.0170`** · Accuracy **`0.9835 ± 0.0079`**
-  - **Modelo B (sin fondo):** Macro-F1 **`0.9709 ± 0.0137`** · Accuracy **`0.9783 ± 0.0070`**
-  - En CV ambos modelos están prácticamente empatados dentro de 1 desvío estándar (`-0.005` en Macro-F1), con un desvío levemente menor en B.
-- **Test fijo (359 fotos):**
-  - **Modelo A (con fondo):** Macro-F1 **`0.9527`** · Accuracy **`0.9666`** (12 errores). F1 por clase: `hojas_sanas 0.967`, `mancha_bacteriana 0.909`, `mildiu 0.976`, `oidio 0.959`.
-  - **Modelo B (sin fondo):** Macro-F1 **`0.9320`** · Accuracy **`0.9554`** (16 errores). F1 por clase: `hojas_sanas 0.955`, `mancha_bacteriana 0.848`, `mildiu 0.966`, `oidio 0.958`.
-- **Qué muestran las diferencias y Grad-CAM:**
-  - A y B discreparon en **13 de las 359 fotos de test**: **B acertó 4 que A falló**, **A acertó 8 que B falló**, y en 1 fallaron ambos (`Healthy Leaves_1094.jpg`).
-  - **Evidencia de sesgo de fondo en A:** en `Downy Mildew_172.jpg` (real `mildiu`), Grad-CAM muestra que A activa con fuerza **en el fondo blanco fuera de la hoja** y falla (`oidio` 59%), mientras B mira **el centro de la hoja** y acierta (`mildiu` 99%). Además, en `Powdery Mildew_395.png` (foto real con fondo verde de viñedo), A falla (`hojas_sanas` 92%) mientras **B acierta (`oidio` 96%)**.
-  - **Por qué A saca ventaja numérica en este test:** la mayoría de las fotos del test tienen fondo de laboratorio consistente con el train (por ejemplo, fondo gris oscuro en `mancha_bacteriana`, donde A acierta 15/15) y B sufre cuando la segmentación recorta parcialmente una foto con múltiples hojas (como `Bacterial Leaf Spot_97.png`, de 3 hojas, donde la UNet conservó solo una).
+  - **Modelo A (con fondo):** Macro-F1 **`0.9772 ± 0.0136`** · Accuracy **`0.9845 ± 0.0066`**
+  - **Modelo B (sin fondo):** Macro-F1 **`0.9706 ± 0.0174`** · Accuracy **`0.9788 ± 0.0096`**
+  - En CV ambos modelos están prácticamente empatados dentro de 1 desvío estándar (`-0.0066` en Macro-F1).
+- **Test interno fijo (359 fotos de Niphad):**
+  - **Modelo A (con fondo):** Accuracy **`0.9582`** (15 errores) · Macro-F1 **`0.9578`**. F1 por clase: `hojas_sanas 0.956`, `mancha_bacteriana 0.968`, `mildiu 0.966`, `oidio 0.941`.
+  - **Modelo B (sin fondo):** Accuracy **`0.9610`** (14 errores) · Macro-F1 **`0.9523`** (+0.020 respecto al baseline v0 `0.9320`). F1 por clase: `hojas_sanas 0.968`, `mancha_bacteriana 0.929` (100% precisión, 0 falsos positivos), `mildiu 0.962`, `oidio 0.951`.
+  - Discrepancias (15/359): **B acierta 8 que A falla** (incluida `Powdery Mildew_395.png` en viñedo real) vs A acierta 7 que B falla.
+- **Generalización en test externo de campo real (1.432 fotos de 4 fuentes independientes: iNaturalist, GBIF, GLVD y `j4xs3kh3fd-2`):**
+  - **Modelo A:** Macro-F1 **`0.3667`** · Balanced-Acc **`43.6%`** (`sanas 70.2%`, `mildiu 45.8%`, `oidio 14.9%`).
+  - **Modelo B:** Macro-F1 **`0.4313`** · Balanced-Acc **`43.8%`** (`sanas 71.0%`, `mildiu 28.5%`, `oidio 32.0%`, `campo_una_hoja 85.5%`, `lab_externo 46.0%`).
+  - Frente al baseline v0 de B (`33.8%` Balanced-Acc, `37.4%` falsos `mancha_bacteriana`), la receta `v4d` subió **+10,0 pp** la Balanced-Acc en campo, redujo los falsos `mancha_bacteriana` a **`15.3%`** (-22,1 pp) y duplicó el acierto de B frente a A en `oidio` real de viñedo (`32.0%` vs `14.9%`).
+- **Grad-CAM:** en las discrepancias de test (por ej. `hojas_sanas` y `oidio`), B concentra su atención en la lámina foliar sobre el fondo gris neutro, mientras A sigue siendo sensible al pecíolo/sombras y al fondo de campo.
 
 **Recordar:** el modelo es una aproximación limitada a 4 clases (otras causas como deficiencias de
 nutrientes, estrés hídrico, quemaduras de sol, insectos, agroquímicos u otras enfermedades también

@@ -301,9 +301,38 @@ def segmentar_hoja(model, foto):
     return limpiar_mascara(prob > 0.5)
 
 
-def quitar_fondo(foto, mascara):
-    """Pinta de negro todo lo que no es hoja."""
-    return foto * mascara[..., None].astype(np.uint8)
+def quitar_fondo(foto, mascara, fondo=0):
+    """Pinta con `fondo` (0 = negro, 128 = gris neutro) todo lo que no es hoja."""
+    return np.where(mascara[..., None], foto, fondo).astype(np.uint8)
+
+
+def recortar_a_hoja(foto, mascara=None, margen=0.05, fondo=128, lado=IMG_CLF):
+    """Recorta al cuadro ajustado de la hoja (+margen) sin deformar y lo lleva a `lado`×`lado`.
+
+    Se usa para el Modelo B en el notebook 03 y en la app:
+    - Elimina el exceso de fondo vacío para que todas las hojas llenen el cuadro por igual.
+    - Usa fondo gris neutro `128` por defecto, que al reescalar a [-1, +1] en MobileNetV2
+      entra como 0.0 (neutro) en lugar de -1.0 (negro).
+    """
+    if mascara is None:
+        mascara = foto.max(axis=-1) > 0
+    else:
+        mascara = np.asarray(mascara, dtype=bool)
+
+    base = quitar_fondo(foto, mascara, fondo=fondo)
+    if int(mascara.sum()) < 16:
+        return np.array(Image.fromarray(base).resize((lado, lado), Image.BILINEAR), dtype=np.uint8)
+
+    ys, xs = np.where(mascara)
+    rec = base[int(ys.min()):int(ys.max()) + 1, int(xs.min()):int(xs.max()) + 1]
+    h, w = rec.shape[:2]
+    m = max(1, int(round(max(h, w) * margen)))
+    tam = max(h, w) + 2 * m
+    lienzo = np.full((tam, tam, 3), fondo, dtype=np.uint8)
+    oy = (tam - h) // 2
+    ox = (tam - w) // 2
+    lienzo[oy:oy + h, ox:ox + w] = rec
+    return np.array(Image.fromarray(lienzo).resize((lado, lado), Image.BILINEAR), dtype=np.uint8)
 
 
 # ---------------------------------------------------------------------------
