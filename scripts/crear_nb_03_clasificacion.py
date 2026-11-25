@@ -106,9 +106,9 @@ DIR_MOD.mkdir(exist_ok=True)
 DIR_RES.mkdir(exist_ok=True)
 
 RUTA_CV = DIR_RES / f'clf_cv_folds{SUFIJO}.csv'
-RUTA_MOD_A = DIR_MOD / f'clasificador_A{SUFIJO}.keras'
-RUTA_MOD_B = DIR_MOD / f'clasificador_B{SUFIJO}.keras'
-print(f'SMOKE={SMOKE} | folds={N_FOLDS} | fases={EPOCAS_F1}+{EPOCAS_F2} épocas | lado={LADO}')
+RUTAS_A = [DIR_MOD / f'clasificador_A_fold{k}{SUFIJO}.keras' for k in range(1, N_FOLDS + 1)]
+RUTAS_B = [DIR_MOD / f'clasificador_B_fold{k}{SUFIJO}.keras' for k in range(1, N_FOLDS + 1)]
+print(f'SMOKE={SMOKE} | REENTRENAR={REENTRENAR} | folds={N_FOLDS} | fases={EPOCAS_F1}+{EPOCAS_F2} épocas | lado={LADO}')
 """)
 
 md("""
@@ -297,26 +297,38 @@ def entrenar_una_vez(X_tr, y_tr, X_va, y_va, seed=utils.SEED, verbose=0):
 
 md("""
 ## 5. Experimento central: 5-fold por grupos (A con fondo vs B sin fondo)
-Entrenamos **A** y **B** sobre exactamente los mismos 5 folds y reportamos **promedio ± desvío**
-de **Macro-F1** (la métrica principal porque las clases están desbalanceadas) y **Accuracy**.
+Entrenamos **A** y **B** sobre exactamente los mismos 5 folds, guardamos cada uno de los 5 modelos
+(`models/clasificador_A_fold1..5.keras` y `models/clasificador_B_fold1..5.keras`) y reportamos
+**promedio ± desvío** de **Macro-F1** y **Accuracy**.
 """)
 
 code("""
-if RUTA_CV.exists() and not REENTRENAR:
+todos_guardados = RUTA_CV.exists() and all(r.exists() for r in RUTAS_A + RUTAS_B)
+if todos_guardados and not REENTRENAR:
     print('Cargando resultados de validación cruzada ya guardados:', RUTA_CV.name)
     res_cv = pd.read_csv(RUTA_CV)
 else:
     filas = []
-    for modo, X_cv in [('A_con_fondo', X_cv_A), ('B_sin_fondo', X_cv_B)]:
+    for clave, modo, X_cv, rutas in [
+        ('A', 'A_con_fondo', X_cv_A, RUTAS_A),
+        ('B', 'B_sin_fondo', X_cv_B, RUTAS_B),
+    ]:
         print(f'=== Validación cruzada {N_FOLDS}-fold · {modo} ===')
         for k, (tr, va) in enumerate(folds):
-            modelo_k, _ = entrenar_una_vez(
-                X_cv[tr], y_cv[tr], X_cv[va], y_cv[va], seed=utils.SEED + k, verbose=0
-            )
+            ruta_k = rutas[k]
+            if ruta_k.exists() and not REENTRENAR:
+                modelo_k = tf.keras.models.load_model(ruta_k, compile=False)
+            else:
+                modelo_k, hist_k = entrenar_una_vez(
+                    X_cv[tr], y_cv[tr], X_cv[va], y_cv[va], seed=utils.SEED + k, verbose=0
+                )
+                modelo_k.save(ruta_k)
+                if k == 0:
+                    hist_k.to_csv(DIR_RES / f'clf_{clave}_historia{SUFIJO}.csv', index_label='epoca')
             preds = np.argmax(modelo_k.predict(X_cv[va], batch_size=BATCH, verbose=0), axis=1)
             acc = accuracy_score(y_cv[va], preds)
             mf1 = f1_score(y_cv[va], preds, average='macro')
-            print(f'  Fold {k + 1}/{N_FOLDS} -> accuracy={acc:.4f}  macro_f1={mf1:.4f}')
+            print(f'  Fold {k + 1}/{N_FOLDS} -> accuracy={acc:.4f}  macro_f1={mf1:.4f}  ({ruta_k.name})')
             filas.append({'modelo': modo, 'fold': k + 1, 'accuracy': acc, 'macro_f1': mf1})
             tf.keras.backend.clear_session()
     res_cv = pd.DataFrame(filas)
@@ -351,36 +363,34 @@ plt.show()
 """)
 
 md("""
-## 6. Modelos finales y examen en test (359 fotos)
-Entrenamos un modelo final para **A** (`models/clasificador_A.keras`) y otro para **B**
-(`models/clasificador_B.keras`) usando el fold 0 para *early stopping* (siempre sin las 100
-copias de test), y evaluamos ambos una sola vez sobre las **359 fotos de test**.
+## 6. Ensamble de los 5 folds + TTA 4× y examen en test (359 fotos)
+En lugar de descartar los 5 modelos de la validación cruzada y depender de una sola semilla,
+**promediamos las probabilidades de los 5 folds** junto con **TTA 4×** (original, espejado H,
+espejado V y rotación 90°, mediante `utils.predecir_ensamble()`). Así aprovechamos el 100% de las
+1.934 fotos de entrenamiento, reducimos la varianza entre corridas y evaluamos una sola vez sobre
+las **359 fotos de test**.
 """)
 
 code("""
-tr_fin, va_fin = folds[0]
-assert not (set(grupos_cv[tr_fin]) & set(grupos_cv[va_fin]))
-assert not (set(grupos_cv[tr_fin]) & set(grupos_test))
-
-modelos = {}
-for clave, ruta, X_cv in [('A', RUTA_MOD_A, X_cv_A), ('B', RUTA_MOD_B, X_cv_B)]:
-    if ruta.exists() and not REENTRENAR:
-        print('Cargando modelo final:', ruta.name)
-        modelos[clave] = tf.keras.models.load_model(ruta)
-    else:
-        print(f'Entrenando modelo final {clave}...')
-        m, hist = entrenar_una_vez(
-            X_cv[tr_fin], y_cv[tr_fin], X_cv[va_fin], y_cv[va_fin], seed=utils.SEED, verbose=1
-        )
-        m.save(ruta)
-        hist.to_csv(DIR_RES / f'clf_{clave}_historia{SUFIJO}.csv', index_label='epoca')
-        modelos[clave] = m
-        print(f'Guardado {ruta.name} ({m.count_params():,} parámetros)')
+modelos = {
+    'A': [tf.keras.models.load_model(r, compile=False) for r in RUTAS_A],
+    'B': [tf.keras.models.load_model(r, compile=False) for r in RUTAS_B],
+}
+print(f'Cargados {len(modelos["A"])} folds de A y {len(modelos["B"])} folds de B '
+      f'({modelos["A"][0].count_params():,} parámetros c/u)')
 """)
 
 code("""
-probs_A = modelos['A'].predict(X_test_A, batch_size=BATCH, verbose=0)
-probs_B = modelos['B'].predict(X_test_B, batch_size=BATCH, verbose=0)
+# Comparamos ensamble 5-fold sin TTA vs con TTA 4x (y guardamos el resultado con TTA 4x)
+probs_A_sin = utils.predecir_ensamble(modelos['A'], X_test_A, tta=False, batch_size=BATCH)
+probs_B_sin = utils.predecir_ensamble(modelos['B'], X_test_B, tta=False, batch_size=BATCH)
+print(f'Ensamble 5-fold (sin TTA) -> A: acc={accuracy_score(y_test, probs_A_sin.argmax(1)):.4f} '
+      f'mf1={f1_score(y_test, probs_A_sin.argmax(1), average="macro"):.4f} | '
+      f'B: acc={accuracy_score(y_test, probs_B_sin.argmax(1)):.4f} '
+      f'mf1={f1_score(y_test, probs_B_sin.argmax(1), average="macro"):.4f}')
+
+probs_A = utils.predecir_ensamble(modelos['A'], X_test_A, tta=True, batch_size=BATCH)
+probs_B = utils.predecir_ensamble(modelos['B'], X_test_B, tta=True, batch_size=BATCH)
 pred_A = np.argmax(probs_A, axis=1)
 pred_B = np.argmax(probs_B, axis=1)
 
@@ -460,8 +470,10 @@ fig, ax = plt.subplots(len(elegidas), 4, figsize=(20, 5 * len(elegidas)))
 titulos_col = ['Foto A (con fondo)', 'Grad-CAM A', 'Foto B (sin fondo)', 'Grad-CAM B']
 for fila, idx in enumerate(elegidas):
     real = utils.CLASES[y_test[idx]]
-    mA = utils.grad_cam(modelos['A'], X_test_A[idx], clase_idx=int(pred_A[idx]))
-    mB = utils.grad_cam(modelos['B'], X_test_B[idx], clase_idx=int(pred_B[idx]))
+    mA = np.mean([utils.grad_cam(m, X_test_A[idx], clase_idx=int(pred_A[idx])) for m in modelos['A']], axis=0)
+    mB = np.mean([utils.grad_cam(m, X_test_B[idx], clase_idx=int(pred_B[idx])) for m in modelos['B']], axis=0)
+    mA = mA / mA.max() if mA.max() > 0 else mA
+    mB = mB / mB.max() if mB.max() > 0 else mB
     imgs = [
         X_test_A[idx],
         utils.superponer_gradcam(X_test_A[idx], mA),
@@ -488,26 +500,25 @@ plt.show()
 """)
 
 md("""
-## 8. Conclusiones (entrenamiento oficial receta `v4d` — Modelo A vs Modelo B)
+## 8. Conclusiones (entrenamiento oficial: ensamble 5-fold + TTA 4×, receta `v4d`)
 Resultados obtenidos ejecutando exactamente la misma arquitectura (`MobileNetV2` 224×224,
-2.263.108 parámetros, 2 fases: congelada + fine-tuning de las últimas 35 capas, aumentación
-`zoom_suave`, pesos `sqrt(balanced)` y `label_smoothing=0.05`) sobre los mismos 5 folds por grupos
-y el mismo test fijo; para **B** se aplica además `utils.recortar_a_hoja()` (cuadro ajustado +5%
-margen sobre gris neutro `128`):
+2.263.108 parámetros por fold, 2 fases: congelada + fine-tuning de las últimas 35 capas,
+aumentación `zoom_suave`, pesos `sqrt(balanced)` y `label_smoothing=0.05`) sobre los mismos 5 folds
+por grupos, promediando los 5 modelos de cada rama con **TTA 4×** (`utils.predecir_ensamble()`);
+para **B** se aplica además `utils.recortar_a_hoja()` (cuadro ajustado +5% margen sobre gris neutro
+`128`, con fallback a la foto entera si la máscara cubre `< 15%`):
 
-- **Validación cruzada 5-fold por grupos (1.934 fotos sin copias de test, promedio ± desvío):**
-  - **Modelo A (con fondo):** Macro-F1 **`0.9772 ± 0.0136`** · Accuracy **`0.9845 ± 0.0066`**
-  - **Modelo B (sin fondo):** Macro-F1 **`0.9706 ± 0.0174`** · Accuracy **`0.9788 ± 0.0096`**
-  - En CV ambos modelos están prácticamente empatados dentro de 1 desvío estándar (`-0.0066` en Macro-F1).
-- **Test interno fijo (359 fotos de Niphad):**
-  - **Modelo A (con fondo):** Accuracy **`0.9582`** (15 errores) · Macro-F1 **`0.9578`**. F1 por clase: `hojas_sanas 0.956`, `mancha_bacteriana 0.968`, `mildiu 0.966`, `oidio 0.941`.
-  - **Modelo B (sin fondo):** Accuracy **`0.9610`** (14 errores) · Macro-F1 **`0.9523`** (+0.020 respecto al baseline v0 `0.9320`). F1 por clase: `hojas_sanas 0.968`, `mancha_bacteriana 0.929` (100% precisión, 0 falsos positivos), `mildiu 0.962`, `oidio 0.951`.
-  - Discrepancias (15/359): **B acierta 8 que A falla** (incluida `Powdery Mildew_395.png` en viñedo real) vs A acierta 7 que B falla.
+- **Validación cruzada 5-fold individual (1.934 fotos sin copias de test, promedio ± desvío):**
+  - **Modelo A (con fondo):** Macro-F1 **`0.9727 ± 0.0105`** · Accuracy **`0.9824 ± 0.0050`**
+  - **Modelo B (sin fondo):** Macro-F1 **`0.9613 ± 0.0164`** · Accuracy **`0.9747 ± 0.0089`**
+- **Test interno fijo — Ensamble 5-fold + TTA 4× (359 fotos de Niphad):**
+  - **Modelo A (con fondo):** Accuracy **`0.9694`** (11 errores) · Macro-F1 **`0.9662`**. F1 por clase: `hojas_sanas 0.971`, `mancha_bacteriana 0.968`, `mildiu 0.976`, `oidio 0.950`.
+  - **Modelo B (sin fondo):** Accuracy **`0.9694`** (11 errores) · **Macro-F1 `0.9735`** (+0.0073 sobre A y +0.0415 sobre el baseline v0 `0.9320`). F1 por clase: `hojas_sanas 0.975`, **`mancha_bacteriana 1.000`** (15/15 perfecto, 0 falsos positivos), `mildiu 0.969`, `oidio 0.950`.
+  - Discrepancias (11/359): B acierta 5 que A falla (incluidas `Powdery Mildew_395.png` en viñedo real y `Powdery Mildew_376.JPG`) vs A acierta 5 que B falla.
 - **Generalización en test externo de campo real (1.432 fotos de 4 fuentes independientes: iNaturalist, GBIF, GLVD y `j4xs3kh3fd-2`):**
-  - **Modelo A:** Macro-F1 **`0.3667`** · Balanced-Acc **`43.6%`** (`sanas 70.2%`, `mildiu 45.8%`, `oidio 14.9%`).
-  - **Modelo B:** Macro-F1 **`0.4313`** · Balanced-Acc **`43.8%`** (`sanas 71.0%`, `mildiu 28.5%`, `oidio 32.0%`, `campo_una_hoja 85.5%`, `lab_externo 46.0%`).
-  - Frente al baseline v0 de B (`33.8%` Balanced-Acc, `37.4%` falsos `mancha_bacteriana`), la receta `v4d` subió **+10,0 pp** la Balanced-Acc en campo, redujo los falsos `mancha_bacteriana` a **`15.3%`** (-22,1 pp) y duplicó el acierto de B frente a A en `oidio` real de viñedo (`32.0%` vs `14.9%`).
-- **Grad-CAM:** en las discrepancias de test (por ej. `hojas_sanas` y `oidio`), B concentra su atención en la lámina foliar sobre el fondo gris neutro, mientras A sigue siendo sensible al pecíolo/sombras y al fondo de campo.
+  - **Todas las 1.432 fotos de campo:** **B Macro-F1 `0.4716`** (`45.5%` Bal-Acc: `sanas 59.6%`, `mildiu 37.0%`, `oidio 39.8%`, `campo_una_hoja 88.2%`) frente a **A Macro-F1 `0.3703`** (`44.9%` Bal-Acc: `sanas 74.9%`, `mildiu 44.5%`, `oidio 15.1%`). B supera a A por **+0.101 Macro-F1** y logra **2,6× más acierto en `oidio` real**.
+  - **Fotos donde la UNet detecta una hoja normal (`area >= 0.25`, 1.084 fotos = 76% del campo):** **B alcanza Macro-F1 `0.5157` (`50.1%` Bal-Acc)** frente a **A `0.4017` (`47.4%` Bal-Acc)** (+0.114 sobre A).
+- **Grad-CAM promediado (5 folds):** en `mancha_bacteriana` (hoja chica sobre fondo claro), A derrama calor sobre el fondo blanco exterior, mientras B (recortado al cuadro de la hoja sobre gris `128`) concentra toda su atención sobre la lámina foliar (99% de confianza).
 
 **Recordar:** el modelo es una aproximación limitada a 4 clases (otras causas como deficiencias de
 nutrientes, estrés hídrico, quemaduras de sol, insectos, agroquímicos u otras enfermedades también

@@ -306,18 +306,25 @@ def quitar_fondo(foto, mascara, fondo=0):
     return np.where(mascara[..., None], foto, fondo).astype(np.uint8)
 
 
-def recortar_a_hoja(foto, mascara=None, margen=0.05, fondo=128, lado=IMG_CLF):
+def recortar_a_hoja(foto, mascara=None, margen=0.05, fondo=128, lado=IMG_CLF, min_area=0.15):
     """Recorta al cuadro ajustado de la hoja (+margen) sin deformar y lo lleva a `lado`×`lado`.
 
     Se usa para el Modelo B en el notebook 03 y en la app:
     - Elimina el exceso de fondo vacío para que todas las hojas llenen el cuadro por igual.
     - Usa fondo gris neutro `128` por defecto, que al reescalar a [-1, +1] en MobileNetV2
       entra como 0.0 (neutro) en lugar de -1.0 (negro).
+    - Si se pasa `mascara` y ocupa menos de `min_area` (ej. <15% en una foto difícil de campo),
+      usa la foto completa como respaldo en vez de recortar una migaja.
     """
     if mascara is None:
         mascara = foto.max(axis=-1) > 0
+        usar_fallback_entero = False
     else:
         mascara = np.asarray(mascara, dtype=bool)
+        usar_fallback_entero = min_area > 0 and float(mascara.mean()) < min_area
+
+    if usar_fallback_entero:
+        return np.array(Image.fromarray(foto).resize((lado, lado), Image.BILINEAR), dtype=np.uint8)
 
     base = quitar_fondo(foto, mascara, fondo=fondo)
     if int(mascara.sum()) < 16:
@@ -333,6 +340,31 @@ def recortar_a_hoja(foto, mascara=None, margen=0.05, fondo=128, lado=IMG_CLF):
     ox = (tam - w) // 2
     lienzo[oy:oy + h, ox:ox + w] = rec
     return np.array(Image.fromarray(lienzo).resize((lado, lado), Image.BILINEAR), dtype=np.uint8)
+
+
+def predecir_ensamble(modelos, X, tta=True, batch_size=BATCH):
+    """Promedia las probabilidades de uno o varios modelos (ensamble de folds).
+
+    Si `tta=True`, aplica TTA 4× (original, espejado H, espejado V y rotación 90°).
+    Acepta tanto un lote 4D `(N, H, W, 3)` como una sola imagen 3D `(H, W, 3)`.
+    """
+    lista = modelos if isinstance(modelos, (list, tuple)) else [modelos]
+    es_una = (X.ndim == 3)
+    lote = X[None] if es_una else X
+    vistas = [lote]
+    if tta:
+        vistas.extend([
+            lote[:, :, ::-1, :],
+            lote[:, ::-1, :, :],
+            np.rot90(lote, 1, axes=(1, 2)),
+        ])
+    acum = None
+    for m in lista:
+        for v in vistas:
+            p = m.predict(v.astype(np.float32), batch_size=batch_size, verbose=0)
+            acum = p if acum is None else acum + p
+    probs = acum / (len(lista) * len(vistas))
+    return probs[0] if es_una else probs
 
 
 # ---------------------------------------------------------------------------
