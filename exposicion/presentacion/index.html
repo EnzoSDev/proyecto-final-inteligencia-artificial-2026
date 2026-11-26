@@ -1,0 +1,562 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hojas de vid · UNet + CNN</title>
+
+<!-- Tailwind desde internet (mientras la armamos). Antes del oral se reemplaza por un CSS local para que ande sin wifi. -->
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          vid:   '#1f3a26',   // verde viña oscuro (fondos)
+          hoja:  '#4e7d3a',   // verde hoja
+          brote: '#a3c06e',   // verde brote (resaltar)
+          trigo: '#f4ecd8',   // papel / trigo claro (fondo claro)
+          paja:  '#e3c47f',   // paja (acentos)
+          tierra:'#6e4b31',   // tierra (texto secundario)
+          uva:   '#5b2c4e',   // uva (acento fuerte)
+        },
+        fontFamily: {
+          titulo: ['Fraunces', 'Georgia', 'serif'],
+          texto:  ['"Work Sans"', 'system-ui', 'sans-serif'],
+        },
+      },
+    },
+  };
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,800&family=Work+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+
+<style>
+  /* Cada diapositiva es un lienzo fijo de 1600x900 que se escala para entrar en la pantalla */
+  html, body { margin: 0; height: 100%; background: #1f3a26; overflow: hidden; transition: background-color .3s; }
+  #escenario { position: fixed; inset: 0; }
+  /* El lienzo se centra con left/top 50% + translate, y después se escala */
+  #deck { width: 1600px; height: 900px; position: absolute; left: 50%; top: 50%; transform-origin: center center; }
+  .slide { position: absolute; inset: 0; display: none; overflow: hidden; }
+  .slide.activa { display: flex; animation: entrar .35s ease-out; }
+  @keyframes entrar { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+
+  /* Textura suave de "surcos" para los fondos oscuros */
+  .surcos { background-color: #1f3a26;
+    background-image: repeating-linear-gradient(115deg, rgba(255,255,255,.035) 0 2px, transparent 2px 38px); }
+  .papel  { background-color: #f4ecd8;
+    background-image: radial-gradient(rgba(110,75,49,.07) 1px, transparent 1px); background-size: 22px 22px; }
+
+  /* Deslizador "con fondo / sin fondo" */
+  .comparar { position: relative; width: 560px; height: 560px; border-radius: 18px; overflow: hidden; }
+  .comparar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; image-rendering: auto; }
+  .comparar .arriba { clip-path: inset(0 calc(100% - var(--corte, 50%)) 0 0); }
+  .comparar .linea { position: absolute; top: 0; bottom: 0; left: var(--corte, 50%); width: 4px; background: #e3c47f; transform: translateX(-2px); }
+  .comparar input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: ew-resize; }
+
+  /* Para exportar a PDF desde el navegador (Ctrl+P): una diapositiva por hoja */
+  @media print {
+    @page { size: 1600px 900px; margin: 0; }
+    html, body { overflow: visible; background: white; height: auto; }
+    #escenario { position: static; display: block; }
+    #deck { transform: none !important; width: 1600px; height: auto; }
+    #deck { position: static; }
+    .slide { position: relative; display: flex !important; height: 900px; page-break-after: always; break-after: page; animation: none; }
+    .no-imprimir { display: none !important; }
+  }
+</style>
+</head>
+
+<body class="font-texto">
+<div id="escenario">
+<div id="deck">
+
+<!-- ============================ ENZO: INTRODUCCIÓN ============================ -->
+
+<!-- 1. Título -->
+<section class="slide surcos text-trigo" data-quien="Enzo y Martin">
+  <!-- La línea de arriba va sola; debajo, el título y las fotos alineados arriba -->
+  <div class="w-full flex flex-col justify-center pl-28 pr-28">
+    <p class="text-paja text-2xl tracking-[.2em] uppercase mb-8 whitespace-nowrap">Inteligencia Artificial · Proyecto final · 2026</p>
+    <div class="flex items-start gap-20">
+    <div class="flex-1">
+      <h1 class="font-titulo text-[84px] leading-[1.05] font-extrabold">Segmentación y detección de enfermedades en hojas de vid</h1>
+      <p class="text-4xl mt-8 text-brote">con <b class="text-trigo">UNet</b> + <b class="text-trigo">CNN</b></p>
+      <p class="text-2xl mt-16 text-trigo/80">Enzo Sorrenti · Martin Bellone</p>
+    </div>
+    <div class="w-[520px] shrink-0 grid grid-cols-2 gap-5 pt-2">
+      <img src="img/clase_hojas_sanas.jpg" class="rounded-2xl aspect-square object-cover rotate-[-3deg] shadow-2xl" alt="">
+      <img src="img/clase_mildiu.jpg" class="rounded-2xl aspect-square object-cover rotate-[2deg] shadow-2xl mt-10" alt="">
+      <img src="img/clase_oidio.jpg" class="rounded-2xl aspect-square object-cover rotate-[2deg] shadow-2xl -mt-6" alt="">
+      <img src="img/clase_mancha_bacteriana.jpg" class="rounded-2xl aspect-square object-cover rotate-[-2deg] shadow-2xl mt-4" alt="">
+    </div>
+    </div>
+  </div>
+</section>
+
+<!-- 2. El problema -->
+<section class="slide papel text-vid" data-quien="Enzo">
+  <div class="w-full px-24 py-20 flex flex-col">
+    <h2 class="font-titulo text-7xl font-extrabold">El problema</h2>
+    <p class="text-4xl mt-6 text-tierra">A partir de una foto, ¿la hoja está sana o tiene una de estas enfermedades?</p>
+    <div class="grid grid-cols-4 gap-8 mt-14">
+      <figure class="text-center">
+        <img src="img/clase_hojas_sanas.jpg" class="rounded-2xl w-full aspect-square object-cover shadow-lg" alt="">
+        <figcaption class="text-4xl font-bold mt-5 text-hoja">Sana</figcaption>
+      </figure>
+      <figure class="text-center">
+        <img src="img/clase_mildiu.jpg" class="rounded-2xl w-full aspect-square object-cover shadow-lg" alt="">
+        <figcaption class="text-4xl font-bold mt-5">Mildiu</figcaption>
+      </figure>
+      <figure class="text-center">
+        <img src="img/clase_oidio.jpg" class="rounded-2xl w-full aspect-square object-cover shadow-lg" alt="">
+        <figcaption class="text-4xl font-bold mt-5">Oídio</figcaption>
+      </figure>
+      <figure class="text-center">
+        <img src="img/clase_mancha_bacteriana.jpg" class="rounded-2xl w-full aspect-square object-cover shadow-lg" alt="">
+        <figcaption class="text-4xl font-bold mt-5">Mancha bacteriana</figcaption>
+      </figure>
+    </div>
+    <p class="mt-auto text-3xl bg-vid text-trigo rounded-2xl px-8 py-5 self-start">
+      El sistema informa la clase y su probabilidad. <b class="text-paja">Decide el ingeniero agrónomo.</b>
+    </p>
+  </div>
+</section>
+
+<!-- 3. Los datos -->
+<section class="slide papel text-vid" data-quien="Enzo">
+  <div class="w-full px-24 py-20 flex flex-col">
+    <h2 class="font-titulo text-7xl font-extrabold">Los datos</h2>
+    <div class="flex items-end gap-6 mt-12">
+      <div><p class="text-[120px] leading-none font-titulo font-extrabold text-tierra/60 line-through decoration-uva decoration-8">2726</p><p class="text-3xl mt-2">fotos del dataset</p></div>
+      <p class="text-7xl pb-12 text-tierra">→</p>
+      <div><p class="text-[120px] leading-none font-titulo font-extrabold text-hoja">2393</p><p class="text-3xl mt-2">sin las <b>333 copias exactas</b></p></div>
+    </div>
+    <div class="mt-14 space-y-5 w-[1100px]">
+      <div class="flex items-center gap-6"><span class="w-64 shrink-0 text-3xl">Mildiu</span><div class="h-12 shrink-0 rounded-lg bg-hoja" style="width:966px"></div><span class="text-3xl font-bold">966</span></div>
+      <div class="flex items-center gap-6"><span class="w-64 shrink-0 text-3xl">Sana</span><div class="h-12 shrink-0 rounded-lg bg-hoja" style="width:927px"></div><span class="text-3xl font-bold">927</span></div>
+      <div class="flex items-center gap-6"><span class="w-64 shrink-0 text-3xl">Oídio</span><div class="h-12 shrink-0 rounded-lg bg-hoja" style="width:400px"></div><span class="text-3xl font-bold">400</span></div>
+      <div class="flex items-center gap-6"><span class="w-64 shrink-0 text-3xl">Mancha bact.</span><div class="h-12 shrink-0 rounded-lg bg-uva" style="width:100px"></div><span class="text-3xl font-bold text-uva">100</span></div>
+    </div>
+    <p class="mt-auto text-3xl text-tierra">Pocas fotos de mancha bacteriana y <b class="text-vid">324 copias casi iguales</b> que el MD5 no detecta: hay que cuidar que no queden repartidas entre entrenamiento y prueba.</p>
+  </div>
+</section>
+
+<!-- 4. La idea -->
+<section class="slide surcos text-trigo" data-quien="Enzo">
+  <div class="w-full px-24 py-20 flex flex-col">
+    <h2 class="font-titulo text-7xl font-extrabold">La idea: 2 redes</h2>
+    <div class="flex items-center justify-between mt-20">
+      <figure class="text-center"><img src="img/par_con_fondo.jpg" class="w-64 h-64 rounded-2xl object-cover" alt=""><figcaption class="text-3xl mt-4">Foto</figcaption></figure>
+      <span class="text-6xl text-paja">→</span>
+      <div class="w-56 h-56 rounded-full bg-hoja grid place-items-center text-center shadow-2xl"><p class="font-titulo text-5xl font-extrabold">UNet</p></div>
+      <span class="text-6xl text-paja">→</span>
+      <figure class="text-center"><img src="img/par_sin_fondo.jpg" class="w-64 h-64 rounded-2xl object-cover" alt=""><figcaption class="text-3xl mt-4">Hoja sin fondo</figcaption></figure>
+      <span class="text-6xl text-paja">→</span>
+      <div class="w-56 h-56 rounded-full bg-uva grid place-items-center text-center shadow-2xl"><p class="font-titulo text-4xl font-extrabold leading-tight">CNN<br><span class="text-2xl font-texto font-medium">MobileNetV2</span></p></div>
+      <span class="text-6xl text-paja">→</span>
+      <div class="text-left text-3xl leading-relaxed"><p><b class="text-brote">Mildiu</b> 92%</p><p class="text-trigo/70">Oídio 5%</p><p class="text-trigo/70">Sana 2%</p><p class="text-trigo/70">Mancha 1%</p></div>
+    </div>
+    <p class="mt-auto text-3xl text-paja">Pregunta central: <b class="text-trigo">¿la red mira la hoja… o mira el fondo?</b></p>
+  </div>
+</section>
+
+<!-- ============================ ENZO: UNET ============================ -->
+
+<!-- 5. Máscaras -->
+<section class="slide papel text-vid" data-quien="Enzo">
+  <div class="w-full px-24 py-20 flex flex-col">
+    <p class="text-2xl tracking-[.3em] uppercase text-hoja font-bold">Parte 1 · Segmentar la hoja</p>
+    <h2 class="font-titulo text-7xl font-extrabold mt-3">No había máscaras: las hicimos</h2>
+    <img src="img/mascara_pasos.jpg" class="w-full mt-12 rounded-xl shadow-lg" alt="Pasos del truco automático por saturación">
+    <div class="grid grid-cols-4 gap-6 mt-auto">
+      <div class="bg-white/70 rounded-2xl p-7"><p class="text-6xl font-titulo font-extrabold text-hoja">2393</p><p class="text-3xl mt-2">automáticas<br><span class="text-tierra">(por saturación)</span></p></div>
+      <div class="bg-white/70 rounded-2xl p-7"><p class="text-6xl font-titulo font-extrabold text-tierra/70">69</p><p class="text-3xl mt-2">descartadas<br><span class="text-tierra">(revisadas a ojo)</span></p></div>
+      <div class="bg-white/70 rounded-2xl p-7"><p class="text-6xl font-titulo font-extrabold text-uva">50</p><p class="text-3xl mt-2">corregidas a mano<br><span class="text-tierra">(test)</span></p></div>
+      <div class="bg-white/70 rounded-2xl p-7"><p class="text-6xl font-titulo font-extrabold text-tierra">39</p><p class="text-3xl mt-2">difíciles de train<br><span class="text-tierra">corregidas a mano</span></p></div>
+    </div>
+  </div>
+</section>
+
+<!-- 6. La UNet original -->
+<section class="slide surcos text-trigo" data-quien="Enzo">
+  <div class="w-full px-24 py-14 flex flex-col">
+    <h2 class="font-titulo text-7xl font-extrabold">La UNet original</h2>
+    <p class="text-3xl mt-3 text-brote">Dice, píxel por píxel, si es hoja o fondo</p>
+    <figure class="mt-6 self-center w-[860px]">
+      <div class="bg-white rounded-2xl p-5"><img src="img/unet_paper.jpg" class="w-full" alt="Arquitectura UNet original"></div>
+      <figcaption class="text-2xl mt-3 text-trigo/80">Ronneberger et al., 2015 · creada para imágenes médicas</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- 7. Primer resultado -->
+<section class="slide papel text-vid" data-quien="Enzo">
+  <div class="w-full px-24 py-14 flex flex-col">
+    <h2 class="font-titulo text-7xl font-extrabold">Primer resultado</h2>
+    <div class="flex gap-16 mt-10 items-center">
+      <div class="w-[420px] shrink-0 text-center bg-white/70 rounded-2xl py-10">
+        <p class="text-3xl">IoU en test</p>
+        <p class="text-[120px] leading-none font-titulo font-extrabold text-tierra mt-3">0.919</p>
+        <p class="text-3xl mt-5 text-uva">Truco automático: <b>0.934</b></p>
+      </div>
+      <div class="flex-1 space-y-5">
+        <div class="flex items-center gap-5">
+          <span class="w-60 shrink-0 text-3xl">Sana</span>
+          <div class="flex-1 space-y-2">
+            <div class="flex items-center gap-3"><div class="h-7 rounded bg-hoja" style="width:calc((0.961 - .80) * 2600px)"></div><span class="text-2xl font-bold">0.961</span></div>
+            <div class="flex items-center gap-3"><div class="h-7 rounded border-[3px] border-dashed border-uva" style="width:calc((0.983 - .80) * 2600px)"></div><span class="text-2xl text-uva">0.983</span></div>
+          </div>
+        </div>
+        <div class="flex items-center gap-5">
+          <span class="w-60 shrink-0 text-3xl">Mancha bact.</span>
+          <div class="flex-1 space-y-2">
+            <div class="flex items-center gap-3"><div class="h-7 rounded bg-hoja" style="width:calc((0.869 - .80) * 2600px)"></div><span class="text-2xl font-bold">0.869</span></div>
+            <div class="flex items-center gap-3"><div class="h-7 rounded border-[3px] border-dashed border-uva" style="width:calc((0.926 - .80) * 2600px)"></div><span class="text-2xl text-uva">0.926</span></div>
+          </div>
+        </div>
+        <div class="flex items-center gap-5">
+          <span class="w-60 shrink-0 text-3xl">Mildiu</span>
+          <div class="flex-1 space-y-2">
+            <div class="flex items-center gap-3"><div class="h-7 rounded bg-hoja" style="width:calc((0.924 - .80) * 2600px)"></div><span class="text-2xl font-bold">0.924</span></div>
+            <div class="flex items-center gap-3"><div class="h-7 rounded border-[3px] border-dashed border-uva" style="width:calc((0.931 - .80) * 2600px)"></div><span class="text-2xl text-uva">0.931</span></div>
+          </div>
+        </div>
+        <div class="flex items-center gap-5">
+          <span class="w-60 shrink-0 text-3xl">Oídio</span>
+          <div class="flex-1 space-y-2">
+            <div class="flex items-center gap-3"><div class="h-7 rounded bg-hoja" style="width:calc((0.920 - .80) * 2600px)"></div><span class="text-2xl font-bold">0.920</span></div>
+            <div class="flex items-center gap-3"><div class="h-7 rounded border-[3px] border-dashed border-uva" style="width:calc((0.893 - .80) * 2600px)"></div><span class="text-2xl text-uva">0.893</span></div>
+          </div>
+        </div>
+        <p class="text-2xl text-tierra pt-1"><span class="inline-block w-8 h-4 rounded bg-hoja align-middle"></span> UNet &nbsp;&nbsp;<span class="inline-block w-8 h-4 rounded border-[3px] border-dashed border-uva align-middle"></span> Truco</p>
+      </div>
+    </div>
+    <div class="mt-auto flex gap-4 text-center">
+      <div class="flex-[5] bg-hoja text-trigo rounded-2xl py-4"><p class="text-4xl font-bold">Train · 1542</p></div>
+      <div class="flex-[2] bg-brote text-vid rounded-2xl py-4"><p class="text-4xl font-bold">Val · 332</p></div>
+      <div class="flex-[2] bg-uva text-trigo rounded-2xl py-4"><p class="text-4xl font-bold">Test · 50</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- 8. El gráfico del entrenamiento -->
+<section class="slide surcos text-trigo" data-quien="Enzo">
+  <div class="w-full px-24 py-14 flex flex-col">
+    <h2 class="font-titulo text-7xl font-extrabold">¿Qué pasó al entrenar?</h2>
+    <figure class="mt-8">
+      <div class="bg-white rounded-2xl p-5"><img src="img/unet_curvas_colab.png" class="w-full" alt="Curvas de pérdida e IoU de la primera UNet"></div>
+    </figure>
+    <div class="mt-auto flex gap-8 text-3xl">
+      <p class="flex-1 bg-uva/60 rounded-2xl px-8 py-5">En la <b class="text-paja">época 13</b> se rompe: la pérdida se dispara y el IoU se cae</p>
+      <p class="flex-1 bg-black/25 rounded-2xl px-8 py-5">Red muy grande (<b class="text-paja">31 millones</b> de parámetros) y <b class="text-paja">sin BatchNorm</b></p>
+    </div>
+  </div>
+</section>
+
+<!-- 9. BatchNorm -->
+<section class="slide papel text-vid" data-quien="Enzo">
+  <div class="w-full px-24 py-14 flex flex-col">
+    <h2 class="font-titulo text-7xl font-extrabold">La solución: BatchNorm</h2>
+    <p class="text-4xl mt-5 text-tierra">Ordena los números entre capas → el entrenamiento queda estable</p>
+    <div class="flex gap-12 mt-12 items-stretch">
+      <div class="flex-1 bg-white/70 rounded-2xl p-8">
+        <p class="text-3xl font-bold text-hoja">Además</p>
+        <ul class="text-3xl mt-5 space-y-4">
+          <li>Red 4 veces más chica <span class="text-tierra">(31 M → 7,8 M)</span></li>
+          <li>Loss <b>BCE + Dice</b></li>
+          <li>Más aumentación</li>
+          <li>Mancha bacteriana ×4</li>
+        </ul>
+      </div>
+      <div class="w-[520px] shrink-0 bg-vid text-trigo rounded-2xl p-8 text-center flex flex-col justify-center">
+        <p class="text-3xl">IoU en test</p>
+        <p class="font-titulo font-extrabold text-6xl text-trigo/60 mt-4">0.919 <span class="text-paja">↓</span></p>
+        <p class="font-titulo font-extrabold text-[110px] leading-none text-brote mt-2">0.931</p>
+        <p class="text-3xl mt-6 text-paja">y sin picos</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 10. Cambiamos el encoder -->
+<section class="slide surcos text-trigo" data-quien="Enzo">
+  <div class="w-full px-24 py-14 flex flex-col">
+    <h2 class="font-titulo text-7xl font-extrabold">Cambiamos el encoder</h2>
+    <p class="text-3xl mt-3 text-brote">MobileNetV2 preentrenada, en lugar de aprender desde cero</p>
+    <div class="flex justify-center mt-10">
+      <figure class="w-[900px]">
+        <svg viewBox="0 0 760 360" class="w-full">
+          <g font-family="Work Sans, sans-serif" font-size="30" fill="#f4ecd8">
+            <rect x="10"  y="10"  width="300" height="300" rx="18" fill="#4e7d3a" opacity=".25"/>
+            <rect x="20"  y="20"  width="70" height="280" rx="10" fill="#4e7d3a"/>
+            <rect x="125" y="110" width="70" height="190" rx="10" fill="#4e7d3a"/>
+            <rect x="230" y="190" width="70" height="110" rx="10" fill="#4e7d3a"/>
+            <rect x="345" y="240" width="70" height="60"  rx="10" fill="#5b2c4e"/>
+            <rect x="460" y="190" width="70" height="110" rx="10" fill="#a3c06e"/>
+            <rect x="565" y="110" width="70" height="190" rx="10" fill="#a3c06e"/>
+            <rect x="670" y="20"  width="70" height="280" rx="10" fill="#a3c06e"/>
+            <path d="M95 55 H665" stroke="#e3c47f" stroke-width="4" stroke-dasharray="10 8" fill="none"/>
+            <path d="M200 145 H560" stroke="#e3c47f" stroke-width="4" stroke-dasharray="10 8" fill="none"/>
+            <path d="M305 220 H455" stroke="#e3c47f" stroke-width="4" stroke-dasharray="10 8" fill="none"/>
+            <text x="20" y="350" font-weight="700" fill="#e3c47f">MobileNetV2</text>
+            <text x="520" y="350">decoder UNet</text>
+          </g>
+        </svg>
+      </figure>
+    </div>
+    <div class="mt-auto flex items-center gap-8">
+      <p class="text-4xl">IoU en test: <b class="text-paja text-5xl">0.931</b> <span class="text-trigo/70">→ igual que antes</span></p>
+      <p class="ml-auto text-3xl bg-uva/70 rounded-2xl px-8 py-4">El techo no era la red: <b class="text-paja">eran los datos</b></p>
+    </div>
+  </div>
+</section>
+
+<!-- 11. Resumen UNet -->
+<section class="slide papel text-vid" data-quien="Enzo">
+  <div class="w-full px-24 py-20 flex flex-col">
+    <h2 class="font-titulo text-7xl font-extrabold">Resumen: qué mejoró la UNet</h2>
+    <p class="text-3xl mt-4 text-tierra">IoU en las 50 fotos de test <span class="text-2xl">(las barras empiezan en 0.88)</span></p>
+    <div class="mt-10 space-y-5">
+      <div class="flex items-center gap-6"><span class="w-[520px] shrink-0 text-3xl">UNet básica</span><div class="h-14 rounded-lg bg-tierra/50" style="width:calc((0.919 - .88) * 9000px)"></div><span class="text-4xl font-bold">0.919</span></div>
+      <div class="flex items-center gap-6"><span class="w-[520px] shrink-0 text-3xl">+ BatchNorm, Dice, aumentación</span><div class="h-14 rounded-lg bg-tierra/60" style="width:calc((0.931 - .88) * 9000px)"></div><span class="text-4xl font-bold">0.931</span></div>
+      <div class="flex items-center gap-6"><span class="w-[520px] shrink-0 text-3xl">+ encoder <b>MobileNetV2</b></span><div class="h-14 rounded-lg bg-tierra/70" style="width:calc((0.931 - .88) * 9000px)"></div><span class="text-4xl font-bold">0.931</span></div>
+      <div class="flex items-center gap-6"><span class="w-[520px] shrink-0 text-3xl">+ <b>39 máscaras a mano</b></span><div class="h-14 rounded-lg bg-hoja" style="width:calc((0.941 - .88) * 9000px)"></div><span class="text-4xl font-bold text-hoja">0.941</span></div>
+      <div class="flex items-center gap-6"><span class="w-[520px] shrink-0 text-3xl">+ limpiar la máscara</span><div class="h-14 rounded-lg bg-hoja" style="width:calc((0.955 - .88) * 9000px)"></div><span class="text-4xl font-bold text-hoja">0.955</span></div>
+      <div class="flex items-center gap-6"><span class="w-[520px] shrink-0 text-3xl text-uva">Truco automático</span><div class="h-14 rounded-lg border-4 border-dashed border-uva" style="width:calc((0.934 - .88) * 9000px)"></div><span class="text-4xl font-bold text-uva">0.934</span></div>
+    </div>
+    <div class="mt-auto flex gap-8">
+      <p class="text-3xl bg-vid text-trigo rounded-2xl px-8 py-5"><b class="text-paja">Lo que más sirvió:</b> mejores datos, más que cambiar la red</p>
+    </div>
+  </div>
+</section>
+
+<!-- 12. Sin fondo -->
+<section class="slide surcos text-trigo" data-quien="Enzo">
+  <div class="w-full px-24 py-16 flex flex-col">
+    <h2 class="font-titulo text-7xl font-extrabold">2393 hojas sin fondo</h2>
+    <img src="img/segmentado_ejemplos.jpg" class="w-full mt-10 rounded-xl" alt="Fotos originales arriba y sin fondo abajo">
+    <div class="mt-auto">
+      <p class="text-3xl text-paja mb-4">Y en una foto de viñedo real, que nunca vio:</p>
+      <img src="img/vinedo_unet.jpg" class="w-full rounded-xl" alt="Foto de viñedo, máscara y hoja recortada">
+    </div>
+  </div>
+</section>
+
+<!-- ============================ TATO: CLASIFICADOR ============================ -->
+
+<!-- 9. Clasificador -->
+<section class="slide papel text-vid" data-quien="Martin">
+  <div class="w-full px-24 py-20 flex flex-col">
+    <p class="text-2xl tracking-[.3em] uppercase text-uva font-bold">Parte 2 · Clasificar</p>
+    <h2 class="font-titulo text-7xl font-extrabold mt-3">MobileNetV2 + transfer learning</h2>
+    <div class="flex items-center gap-6 mt-16 text-3xl">
+      <div class="bg-vid text-trigo rounded-2xl px-10 py-10 text-center w-[560px]"><p class="font-titulo text-5xl font-extrabold">MobileNetV2</p><p class="mt-3 text-brote">ya entrenada con ImageNet</p><p class="mt-6 text-5xl font-bold">2.257.984</p><p class="text-trigo/70">parámetros</p></div>
+      <span class="text-6xl text-tierra">+</span>
+      <div class="bg-uva text-trigo rounded-2xl px-10 py-10 text-center w-[400px]"><p class="font-titulo text-5xl font-extrabold">4 neuronas</p><p class="mt-3 text-paja">una por clase</p><p class="mt-6 text-5xl font-bold">5.124</p><p class="text-trigo/70">parámetros nuevos</p></div>
+    </div>
+    <div class="grid grid-cols-2 gap-8 mt-auto">
+      <div class="bg-white/70 rounded-2xl p-7"><p class="text-4xl font-bold text-hoja">Fase 1</p><p class="text-3xl mt-2">MobileNetV2 congelada: solo aprende la capa nueva</p></div>
+      <div class="bg-white/70 rounded-2xl p-7"><p class="text-4xl font-bold text-hoja">Fase 2</p><p class="text-3xl mt-2">Se ajustan las últimas 35 capas, de a poco</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- 10. Experimento A vs B -->
+<section class="slide surcos text-trigo" data-quien="Martin">
+  <div class="w-full px-24 py-20 flex items-center gap-20">
+    <div class="flex-1">
+      <h2 class="font-titulo text-7xl font-extrabold">El experimento</h2>
+      <p class="text-4xl mt-8">La misma red, las mismas fotos.<br>Solo cambia el fondo.</p>
+      <div class="mt-14 space-y-6 text-4xl">
+        <p><span class="inline-block w-16 text-paja font-bold">A</span> con fondo</p>
+        <p><span class="inline-block w-16 text-brote font-bold">B</span> sin fondo (UNet)</p>
+        <p class="text-3xl text-trigo/80 pl-16">recortada a la hoja, sobre gris</p>
+      </div>
+      <p class="mt-16 text-3xl text-trigo/80">5 folds por grupos · test fijo de 359 fotos · Macro-F1</p>
+    </div>
+    <div class="text-center">
+      <div class="comparar shadow-2xl" id="comparar">
+        <img src="img/par_sin_fondo_gris.jpg" alt="Hoja sin fondo, sobre gris">
+        <img src="img/par_con_fondo.jpg" class="arriba" alt="Hoja con fondo">
+        <div class="linea"></div>
+        <input type="range" min="0" max="100" value="50" aria-label="Comparar con fondo y sin fondo">
+      </div>
+      <div class="flex justify-between text-3xl mt-4 px-2"><span class="text-paja font-bold">A · con fondo</span><span class="text-brote font-bold">B · sin fondo</span></div>
+      <p class="text-xl mt-2 text-trigo/60 no-imprimir">deslizá sobre la foto</p>
+    </div>
+  </div>
+</section>
+
+<!-- 11. Resultados en laboratorio -->
+<section class="slide papel text-vid" data-quien="Martin">
+  <div class="w-full px-24 py-16 flex flex-col">
+    <h2 class="font-titulo text-7xl font-extrabold">En laboratorio: empate <span class="text-3xl font-texto font-medium text-tierra">· 359 fotos de test</span></h2>
+    <div class="flex gap-10 mt-8">
+      <div class="flex-1 bg-white/70 rounded-2xl p-6 text-center"><p class="text-4xl font-bold">A · con fondo</p><p class="text-[96px] leading-none font-titulo font-extrabold text-tierra mt-4">0.966</p><p class="text-3xl mt-3">Macro-F1 · 11 errores</p></div>
+      <div class="flex-1 bg-white/70 rounded-2xl p-6 text-center ring-8 ring-hoja"><p class="text-4xl font-bold">B · sin fondo</p><p class="text-[96px] leading-none font-titulo font-extrabold text-hoja mt-4">0.974</p><p class="text-3xl mt-3">Macro-F1 · 11 errores</p></div>
+    </div>
+    <img src="img/matrices_confusion.png" class="h-[400px] mx-auto mt-6 rounded-xl" alt="Matrices de confusión de A y B">
+    <p class="mt-auto text-2xl text-tierra">Los dos encuentran las 15 de mancha bacteriana; A confunde una sana con mancha, B no.</p>
+  </div>
+</section>
+
+<!-- 12. Grad-CAM -->
+<section class="slide surcos text-trigo" data-quien="Martin">
+  <div class="w-full pl-24 pr-12 py-14 flex gap-12">
+    <div class="w-[520px] flex flex-col">
+      <h2 class="font-titulo text-7xl font-extrabold">¿Dónde mira la red?</h2>
+      <p class="text-4xl mt-8 text-brote">Grad-CAM</p>
+      <p class="text-3xl mt-4">Rojo = lo que más pesó para decidir</p>
+      <div class="mt-14 space-y-8 text-3xl">
+        <p><b class="text-paja">A</b> a veces mira el <b>fondo</b></p>
+        <p><b class="text-brote">B</b> mira siempre <b>la hoja</b></p>
+      </div>
+      <p class="mt-auto text-2xl text-trigo/70">Fotos donde A y B no coinciden: a veces falla uno, a veces el otro</p>
+    </div>
+    <img src="img/gradcam.jpg" class="h-[790px] rounded-xl" alt="Grad-CAM de A y B">
+  </div>
+</section>
+
+<!-- 13. Campo real -->
+<section class="slide papel text-vid" data-quien="Martin">
+  <div class="w-full px-24 py-16 flex flex-col">
+    <h2 class="font-titulo text-7xl font-extrabold">La prueba de fuego: el campo</h2>
+    <p class="text-3xl mt-4 text-tierra">1432 fotos de viñedo real (iNaturalist, GBIF y otros) que la red nunca vio</p>
+    <div class="flex gap-10 mt-10">
+      <div class="flex-1 bg-white/70 rounded-2xl p-8 text-center"><p class="text-4xl font-bold">A · con fondo</p><p class="text-[110px] leading-none font-titulo font-extrabold text-uva mt-4">0.37</p><p class="text-3xl mt-3">Macro-F1</p></div>
+      <div class="flex-1 bg-white/70 rounded-2xl p-8 text-center ring-8 ring-hoja"><p class="text-4xl font-bold">B · sin fondo</p><p class="text-[110px] leading-none font-titulo font-extrabold text-hoja mt-4">0.47</p><p class="text-3xl mt-3">Macro-F1</p></div>
+    </div>
+    <div class="flex gap-10 mt-10 items-center">
+      <img src="img/campo_oidio.jpg" class="w-[620px] rounded-xl shadow-lg" alt="Oídio en viñedo: A falla, B acierta">
+      <p class="text-4xl leading-snug">A aprendió un atajo:<br><b class="text-uva">"fondo verde = hoja sana"</b></p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ TATO: CONCLUSIONES ============================ -->
+
+<!-- 14. Análisis -->
+<section class="slide surcos text-trigo" data-quien="Martin">
+  <div class="w-full px-24 py-20 flex flex-col">
+    <h2 class="font-titulo text-7xl font-extrabold">¿Por qué?</h2>
+    <div class="grid grid-cols-2 gap-10 mt-14">
+      <div class="bg-hoja/40 rounded-2xl p-10">
+        <p class="text-4xl font-bold text-brote">Anduvo bien</p>
+        <ul class="text-3xl mt-6 space-y-5">
+          <li>Fotos de laboratorio, todas parecidas</li>
+          <li>Transfer learning: ya sabía "ver"</li>
+          <li>Sin fondo, la red mira la hoja</li>
+        </ul>
+      </div>
+      <div class="bg-uva/50 rounded-2xl p-10">
+        <p class="text-4xl font-bold text-paja">Anduvo mal en el campo</p>
+        <ul class="text-3xl mt-6 space-y-5">
+          <li>Solo vio fotos de laboratorio</li>
+          <li>Mildiu por abajo de la hoja → parece oídio</li>
+          <li>Varias hojas juntas: la UNet recorta mal</li>
+        </ul>
+      </div>
+    </div>
+    <p class="mt-auto text-4xl text-center">Quitar el fondo <b class="text-brote">no mejora en laboratorio</b>, pero <b class="text-paja">generaliza mejor</b></p>
+  </div>
+</section>
+
+<!-- 15. Limitaciones -->
+<section class="slide papel text-vid" data-quien="Martin">
+  <div class="w-full px-24 py-20 flex gap-16">
+    <div class="flex-1 flex flex-col">
+      <h2 class="font-titulo text-7xl font-extrabold">Es una aproximación</h2>
+      <ul class="text-4xl mt-12 space-y-8">
+        <li>Siempre elige <b>1 de sus 4 clases</b></li>
+        <li>Una mancha puede ser otra cosa: nutrientes, agua, sol, insectos, químicos…</li>
+        <li><b class="text-uva">No da recomendaciones:</b> decide el agrónomo</li>
+      </ul>
+      <p class="mt-auto text-3xl bg-vid text-trigo rounded-2xl px-8 py-5 self-start"><b class="text-paja">Trabajo futuro:</b> entrenar con fotos de campo</p>
+    </div>
+    <figure class="w-[620px] self-center">
+      <img src="img/campo_black_rot.jpg" class="w-full rounded-xl shadow-lg" alt="Black rot: el modelo responde una de sus 4 clases">
+      <figcaption class="text-2xl mt-4 text-tierra">Black rot (no es una de nuestras clases): igual responde con mucha confianza</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ============================ LOS DOS: DEMO ============================ -->
+
+<!-- 16. Demo -->
+<section class="slide surcos text-trigo" data-quien="Enzo y Martin">
+  <div class="w-full flex flex-col items-center justify-center text-center">
+    <h2 class="font-titulo text-[100px] font-extrabold">Probémoslo</h2>
+    <p class="text-4xl mt-6 text-brote">Subimos una foto y vemos qué responde</p>
+    <a href="http://127.0.0.1:7860" target="_blank" rel="noopener"
+       class="mt-16 inline-flex items-center gap-5 bg-paja text-vid text-5xl font-bold px-16 py-8 rounded-full shadow-2xl hover:bg-brote hover:scale-105 transition">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/></svg>
+      Abrir la aplicación
+    </a>
+    <p class="text-2xl mt-8 text-trigo/60 no-imprimir">La app tiene que estar abierta en la compu: <code>python app/app.py</code></p>
+  </div>
+</section>
+
+<!-- 17. Cierre -->
+<section class="slide papel text-vid" data-quien="Enzo y Martin">
+  <div class="w-full flex flex-col items-center justify-center text-center">
+    <p class="font-titulo text-[130px] font-extrabold leading-none">¿Preguntas?</p>
+    <p class="text-4xl mt-10 text-tierra">Enzo Sorrenti · Martin Bellone</p>
+  </div>
+</section>
+
+</div>
+</div>
+
+<!-- Barra inferior: quién habla, número de diapositiva y progreso -->
+<div class="no-imprimir fixed bottom-0 inset-x-0 h-1.5 bg-black/30"><div id="progreso" class="h-full bg-paja transition-all"></div></div>
+<div class="no-imprimir fixed top-4 right-5 flex gap-3 text-base font-texto">
+  <span id="quien" class="bg-black/40 text-trigo px-4 py-1.5 rounded-full"></span>
+  <span id="numero" class="bg-black/40 text-trigo/80 px-4 py-1.5 rounded-full"></span>
+</div>
+
+<script>
+  // ---- Navegación: flechas, espacio, Re Pág/Av Pág, Inicio/Fin; F = pantalla completa ----
+  const slides = [...document.querySelectorAll('.slide')];
+  let actual = Math.min(Math.max(parseInt(location.hash.slice(1)) - 1 || 0, 0), slides.length - 1);
+
+  function mostrar(i) {
+    actual = Math.min(Math.max(i, 0), slides.length - 1);
+    slides.forEach((s, k) => s.classList.toggle('activa', k === actual));
+    document.getElementById('quien').textContent = '🎤 ' + slides[actual].dataset.quien;
+    document.getElementById('numero').textContent = (actual + 1) + ' / ' + slides.length;
+    document.getElementById('progreso').style.width = ((actual + 1) / slides.length * 100) + '%';
+    history.replaceState(null, '', '#' + (actual + 1));
+    // las franjas que sobran alrededor toman el color de fondo de la diapositiva
+    document.body.style.backgroundColor = getComputedStyle(slides[actual]).backgroundColor;
+    document.body.style.backgroundImage = getComputedStyle(slides[actual]).backgroundImage;
+    document.body.style.backgroundSize = getComputedStyle(slides[actual]).backgroundSize;
+  }
+
+  document.addEventListener('keydown', e => {
+    if (e.target.type === 'range') return;                         // las flechas mueven el deslizador
+    if (['ArrowRight', 'ArrowDown', 'PageDown', ' '].includes(e.key)) { e.preventDefault(); mostrar(actual + 1); }
+    if (['ArrowLeft', 'ArrowUp', 'PageUp'].includes(e.key)) { e.preventDefault(); mostrar(actual - 1); }
+    if (e.key === 'Home') mostrar(0);
+    if (e.key === 'End') mostrar(slides.length - 1);
+    if (e.key === 'f' || e.key === 'F') {
+      document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+    }
+  });
+
+  // ---- Escalar el lienzo de 1600x900 para que entre en cualquier pantalla ----
+  function escalar() {
+    const s = Math.min(innerWidth / 1600, innerHeight / 900);
+    document.getElementById('deck').style.transform = `translate(-50%, -50%) scale(${s})`;
+  }
+  addEventListener('resize', escalar);
+
+  // ---- Deslizador "con fondo / sin fondo" ----
+  const comp = document.getElementById('comparar');
+  comp.querySelector('input').addEventListener('input', e => comp.style.setProperty('--corte', e.target.value + '%'));
+
+  escalar();
+  mostrar(actual);
+</script>
+</body>
+</html>

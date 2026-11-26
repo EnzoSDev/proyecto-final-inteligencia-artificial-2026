@@ -204,7 +204,7 @@ Los notebooks están en la raíz para que `import utils` funcione igual en la co
 | `scripts/` | Generadores de notebooks y herramientas (armar `datos/dataset_unet/`, corregir máscaras) | Sí |
 | `docs/` | Consigna, papers, plan para el agente y `referencias/` (la UNet original, las pruebas de Enzo y su versión simple del notebook 02) | Sí |
 | `avances/` | Registro de todo lo que hacemos, día por día | Sí |
-| `exposicion/` | Explicaciones para preparar la exposición (empieza con la de clasificación) | Sí |
+| `exposicion/` | Material del oral: explicaciones y la presentación (`presentacion/index.html`) | Sí |
 | `figuras/`, `models/`, `resultados/` | Salidas de los notebooks | No, se generan |
 | `app/` | La aplicación de demo (Gradio) *(pendiente: se crea cuando la armemos)* | Sí |
 | `.venv/` | Entorno virtual de Python (oculto) | No |
