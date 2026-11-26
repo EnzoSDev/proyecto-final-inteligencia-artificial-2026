@@ -42,4 +42,4 @@ Sirve para no perder el hilo entre sesiones y para poder explicar cada decisión
 | [2026-11-23](2026-11-23.md) | Paso 4 (50 máscaras test); paso 5: `dataset_unet/`, GPU WSL2, barrido UNet v1–v5 (0.931) y preparación `masks/manual_train/` (40 fotos train) · Enzo: orden en `datos/`, `.venv`, notebook 02 simple y entrenamiento en Colab (0.923) |
 | [2026-11-24](2026-11-24.md) | UNet v6 (`0.955`) + `dataset_segmentado` + test externo 1.432 fotos + barrido `v0–v5` + **NB03 oficial Ensamble 5-fold + TTA 4×** (interno B **`0.9735`** vs A `0.9662`, `mancha=1.000`; campo B **`0.472`** vs A `0.370`, **`0.516`** con UNet ok) |
 | [2026-11-25](2026-11-25.md) | Modelos del clasificador de Tato en la compu de Enzo: notebook 03 reproducido (test A `0.9662`, B `0.9735`, igual que Tato) |
-| [2026-11-26](2026-11-26.md) | Código de los notebooks 02 y 03 comentado; presentación del oral en HTML + Tailwind (17 diapositivas) |
+| [2026-11-26](2026-11-26.md) | Notebooks 02 y 03 comentados; presentación HTML (21 diapositivas); app Gradio completa (`app/app.py` + ejemplos); guion completo (Enzo 1–12, Martin 13–19, demo 20) |

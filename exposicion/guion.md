@@ -152,33 +152,121 @@ Duración total: unos **15 minutos**.
 
 ## Martin · Clasificador y conclusiones
 
-### 13. MobileNetV2 + transfer learning
-> *(a completar por Martin)*
+### 13. MobileNetV2 + transfer learning (≈ 50 s)
+> Gracias Enzo. Ahora pasamos a la segunda etapa: con la hoja ya separada del fondo, necesitamos
+> una red que la mire y diga a cuál de las cuatro clases pertenece.
+>
+> Como tenemos unas dos mil fotos, entrenar una red convolucional desde cero haría que memorice el
+> dataset. Por eso usamos **transfer learning** con **MobileNetV2**, que ya viene preentrenada con
+> más de un millón de imágenes de ImageNet y tiene unos **2,26 millones de parámetros** que ya
+> saben detectar bordes, texturas y colores.
+>
+> Encima le agregamos una capa nueva de **4 neuronas**, una por clase, con apenas **5.124
+> parámetros nuevos**. La entrenamos en **dos fases**: en la **Fase 1** congelamos MobileNetV2 para
+> que aprenda solo la capa nueva sin romper lo que la red ya sabía; y en la **Fase 2**
+> descongelamos las **últimas 35 capas** con una tasa de aprendizaje chica, para ajustar esos
+> filtros finos a las manchas de la vid.
 
-### 14. El experimento
-> *(a completar por Martin)*
+### 14. El experimento (≈ 55 s)
+> Con esa arquitectura armamos el experimento central: **la misma red, las mismas fotos, y solo
+> cambia el fondo**.
+>
+> El **modelo A** recibe la foto original con fondo. El **modelo B** recibe la hoja segmentada por
+> la UNet *(deslizar sobre la foto para mostrar el antes y después)*. Acá hicimos dos ajustes
+> importantes que mejoraron mucho a B: la **recortamos al cuadro de la hoja** para que todas llenen
+> la imagen por igual —así no asocia "hoja chica" con mancha bacteriana— y cambiamos el fondo negro
+> por **gris neutro**, porque al entrar a MobileNetV2 el gris vale cero y no crea bordes artificiales
+> tan fuertes.
+>
+> Para evaluar sin trampa dividimos en **5 folds por grupos**, manteniendo las fotos casi iguales
+> siempre del mismo lado, y dejamos un **test fijo de 359 fotos** afuera hasta el final. En lugar
+> de quedarnos con un solo modelo, promediamos los **5 folds** junto con **TTA** (cuatro
+> orientaciones de la foto), y medimos con **Macro-F1**, porque como mancha bacteriana tiene muy
+> pocas fotos, el accuracy solo nos engañaría.
 
-### 15. En laboratorio: empate
-> *(a completar por Martin)*
+### 15. En laboratorio: empate (≈ 50 s)
+> Estos son los resultados en las **359 fotos de test**. En laboratorio, **A y B prácticamente
+> empatan**: A saca **0.966** de Macro-F1 y B saca **0.974**, los dos con **11 errores** de 359
+> fotos, casi un 97% de acierto.
+>
+> Si miramos las matrices de confusión abajo, las dos redes encuentran las **15 fotos de mancha
+> bacteriana**. La pequeña diferencia es que A confunde una hoja sana con mancha bacteriana,
+> mientras que B logra 15 de 15 sin falsos positivos.
+>
+> A primera vista parecería que todo el trabajo de la UNet no cambió casi nada. Pero en fotos de
+> laboratorio, todas parecidas y con fondo liso, todavía no sabemos **en qué se está fijando cada
+> red para decidir**.
 
-### 16. ¿Dónde mira la red?
-> *(a completar por Martin)*
+### 16. ¿Dónde mira la red? (≈ 45 s)
+> Para responder eso usamos **Grad-CAM**, que dibuja un mapa de calor sobre la imagen: **lo rojo
+> es la zona que más pesó** en la decisión de la red y lo azul lo que ignoró.
+>
+> Estas cuatro fotos son casos del test donde A y B no coincidieron —en algunas acierta A y en
+> otras B— y nos sirven para comparar **dónde mira** cada uno.
+>
+> Lo que vemos es que el **modelo A a veces derrama atención sobre el fondo claro**, afuera de la
+> hoja, sobre todo cuando la hoja es chica, como en la segunda fila. El **modelo B**, en cambio,
+> mira siempre **adentro de la hoja**, porque directamente no tiene fondo del que agarrarse.
 
-### 17. La prueba de fuego: el campo
-> *(a completar por Martin)*
+### 17. La prueba de fuego: el campo (≈ 55 s)
+> Entonces nos hicimos la pregunta que de verdad importa: ¿qué pasa si sacamos las dos redes del
+> laboratorio? Juntamos **1.432 fotos de viñedo real** de fuentes externas —iNaturalist, GBIF y
+> otros datasets— que **nunca se usaron para entrenar**, solo para medir.
+>
+> Los números caen fuerte en los dos, pero acá sí aparece la ventaja de quitar el fondo: **A cae a
+> 0.37** de Macro-F1 y **B logra 0.47** —y sube a **0.52** cuando la UNet recorta bien una sola
+> hoja.
+>
+> ¿Por qué se desplomó A? Porque aprendió un atajo: **"fondo verde de campo = hoja sana"**. De
+> hecho, en oídio real falla casi todo y lo manda a hoja sana, como en esta foto de abajo, donde
+> **A se equivoca y B acierta** al sacar el fondo y mirar las manchas.
 
-### 18. ¿Por qué?
-> *(a completar por Martin)*
+### 18. ¿Por qué? (≈ 50 s)
+> Para resumir, acá están los dos lados de la moneda.
+>
+> **¿Por qué anduvo tan bien en laboratorio?** Porque las fotos son muy parecidas entre sí, el
+> transfer learning ya traía filtros buenos para ver formas y texturas, y quitar el fondo obligó a
+> la red B a mirar la hoja.
+>
+> **¿Por qué anduvo mal en el campo?** Por tres motivos concretos: primero, nunca vio fotos de
+> campo al entrenar; segundo, en campo muchas fotos de **mildiu** se sacan **por el envés** de la
+> hoja, donde se ve un moho blanco algodonoso que la red confunde con **oídio**; y tercero, cuando
+> hay **varias hojas encimadas**, la UNet —que entrenó con una hoja por foto— recorta mal.
+>
+> La conclusión del experimento es clara: **quitar el fondo no mejora en laboratorio, pero hace que
+> la red generalice mejor afuera**.
 
-### 19. Es una aproximación
-> *(a completar por Martin)*
+### 19. Es una aproximación (≈ 50 s)
+> Para cerrar, es fundamental dejar claras las **limitaciones** del sistema.
+>
+> Primero, el modelo es una **aproximación** y **siempre va a elegir una de sus cuatro clases**,
+> aunque la hoja tenga otra cosa: falta de nutrientes o de agua, quemadura de sol, insectos,
+> agroquímicos u otra enfermedad. Acá a la derecha se ve un ejemplo real: una hoja con **black
+> rot**, una enfermedad que la red no conoce, y sin embargo responde una de las cuatro clases con
+> mucha confianza.
+>
+> También somos transparentes en lo metodológico: fuimos eligiendo las mejoras de B mirando los
+> resultados en test, así que esos números pueden estar un poco inflados.
+>
+> Por todo esto, el sistema **no da recomendaciones** ni tratamientos: solo informa una clase y sus
+> probabilidades. **La decisión siempre corresponde al ingeniero agrónomo.** Como **trabajo
+> futuro**, el paso natural es incorporar fotos reales de campo —y del envés de las hojas— al
+> entrenamiento.
 
 ---
 
 ## Los dos · Demo y preguntas
 
-### 20. Probémoslo
-> *(a definir cuando esté la app)*
+### 20. Probémoslo (≈ 1 min 15 s)
+> *(Hacer clic en **Abrir la aplicación** → `http://127.0.0.1:7860`, ya levantada con `python app/app.py`.)*
+>
+> - **Enzo (pestaña "Diagnosticar"):** subimos uno de los ejemplos (por ej. `mildiu` o `sana`) y
+>   mostramos el flujo completo: la UNet recorta la hoja sobre gris, el ensamble de 5 modelos B da
+>   las probabilidades de las cuatro clases y abajo aparece siempre el aviso de que decide el
+>   agrónomo.
+> - **Martin (pestaña "Con fondo vs sin fondo"):** elegimos el ejemplo `oidio_A_se_equivoca` para
+>   ver en vivo a los dos ensambles sobre la misma foto —**A dice Sana y B acierta Oídio**— junto
+>   con sus mapas **Grad-CAM** lado a lado.
 
 ### 21. ¿Preguntas?
 > Gracias. ¿Tienen alguna pregunta?
