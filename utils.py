@@ -358,18 +358,27 @@ def predecir_ensamble(modelos, X, tta=True, batch_size=BATCH):
             lote[:, ::-1, :, :],
             np.rot90(lote, 1, axes=(1, 2)),
         ])
+    if es_una:
+        # Una sola foto (la app): las 4 posiciones van juntas en un lote y se llama a cada modelo
+        # una vez. Da lo mismo que el camino de abajo, pero es mucho más rápido.
+        lote_vistas = np.concatenate(vistas).astype(np.float32)
+        probs = np.mean([m(lote_vistas, training=False).numpy() for m in lista], axis=(0, 1))
+        return probs
     acum = None
     for m in lista:
         for v in vistas:
             p = m.predict(v.astype(np.float32), batch_size=batch_size, verbose=0)
             acum = p if acum is None else acum + p
     probs = acum / (len(lista) * len(vistas))
-    return probs[0] if es_una else probs
+    return probs
 
 
 # ---------------------------------------------------------------------------
 # Interpretabilidad: Grad-CAM para el clasificador (MobileNetV2 sin anidar)
 # ---------------------------------------------------------------------------
+_EXTRACTORES = {}   # un extractor por modelo: se arma una vez y se reusa (más rápido en la app)
+
+
 def grad_cam(model, foto, clase_idx=None, capa='out_relu'):
     """Mapa de calor Grad-CAM (0..1) del tamaño de `foto`.
 
@@ -379,7 +388,10 @@ def grad_cam(model, foto, clase_idx=None, capa='out_relu'):
     import tensorflow as tf
     h, w = foto.shape[:2]
     entrada = np.array(Image.fromarray(foto).resize((IMG_CLF, IMG_CLF), Image.BILINEAR), dtype=np.float32)[None]
-    extractor = tf.keras.Model(model.inputs[0], [model.get_layer(capa).output, model.outputs[0]])
+    clave = (id(model), capa)
+    if clave not in _EXTRACTORES:
+        _EXTRACTORES[clave] = tf.keras.Model(model.inputs[0], [model.get_layer(capa).output, model.outputs[0]])
+    extractor = _EXTRACTORES[clave]
     with tf.GradientTape() as tape:
         conv_out, preds = extractor(entrada, training=False)
         if clase_idx is None:
