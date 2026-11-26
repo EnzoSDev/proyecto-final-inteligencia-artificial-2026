@@ -45,13 +45,15 @@ En la compu no hace nada especial.
 
 code("""
 import sys
-EN_COLAB = 'google.colab' in sys.modules
+EN_COLAB = 'google.colab' in sys.modules   # True si estamos en Google Colab
 if EN_COLAB:
     from google.colab import drive
-    drive.mount('/content/drive')
-    sys.path.insert(0, '/content/drive/MyDrive/Proyecto_Final_IA')
+    drive.mount('/content/drive')   # conecta Google Drive (pide permiso)
+    sys.path.insert(0, '/content/drive/MyDrive/Proyecto_Final_IA')   # así Python encuentra utils.py
 
 import utils
+# Prepara los datos: en Colab descomprime datos/dataset_unet.zip en /content (se lee rápido).
+# ROOT = dónde se guardan modelos y figuras (Drive en Colab); DATA = de dónde se leen las fotos.
 entorno = utils.configurar_entorno(['datos/dataset_unet'])
 ROOT, DATA = entorno['ROOT'], entorno['DATA']
 """)
@@ -59,6 +61,8 @@ ROOT, DATA = entorno['ROOT'], entorno['DATA']
 code("""
 import os
 
+# numpy = arrays de números | pandas = tablas | matplotlib = gráficos
+# TensorFlow/Keras = la red neuronal | skimage = leer imágenes
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -69,7 +73,7 @@ from tensorflow.keras.layers import (Input, Rescaling, Conv2D, BatchNormalizatio
                                      Conv2DTranspose, concatenate)
 from tensorflow.keras.models import Model
 
-utils.set_estilo()
+utils.set_estilo()   # letra grande en los gráficos (van a la presentación)
 tf.keras.utils.set_random_seed(utils.SEED)   # mismos resultados cada vez que se corre
 """)
 
@@ -84,22 +88,22 @@ md("""
 """)
 
 code("""
-SMOKE = os.environ.get('SMOKE') == '1'
-REENTRENAR = False
+SMOKE = os.environ.get('SMOKE') == '1'   # prueba rápida en la compu (pocas fotos, 1 época)
+REENTRENAR = False   # False: si ya hay un modelo guardado, lo carga en vez de entrenar
 
 EPOCAS_F1 = 1 if SMOKE else 10   # Fase 1: encoder MobileNetV2 congelado (calienta el decodificador)
 EPOCAS_F2 = 1 if SMOKE else 40   # Fase 2: fine-tuning completo (con BN del encoder congeladas)
 PACIENCIA = 8                    # épocas sin mejorar en validación antes de cortar en Fase 2
-LR_F1 = 1e-3
-LR_F2 = 1e-4
-BATCH = 16
+LR_F1 = 1e-3   # learning rate de la fase 1
+LR_F2 = 1e-4   # learning rate de la fase 2 (10 veces más chico: cambios suaves)
+BATCH = 16   # fotos por grupo: la red corrige sus pesos después de cada grupo
 LADO = utils.IMG_SEG             # 160
 FACTOR_MANCHA = 4                # repetir mancha_bacteriana solo en train (tiene solo 60 fotos)
 FACTOR_MANUAL_TRAIN = 3          # dar más peso a fotos difíciles de train corregidas a mano (si existen)
 
-CARPETA = DATA / 'datos' / 'dataset_unet'
+CARPETA = DATA / 'datos' / 'dataset_unet'   # de dónde se leen fotos y máscaras
 NOMBRE = 'unet_smoke' if SMOKE else 'unet'          # la prueba no pisa el modelo real
-RUTA_MODELO = ROOT / 'models' / f'{NOMBRE}.keras'
+RUTA_MODELO = ROOT / 'models' / f'{NOMBRE}.keras'   # dónde se guarda el modelo
 RUTA_MODELO.parent.mkdir(exist_ok=True)
 (ROOT / 'resultados').mkdir(exist_ok=True)
 print('SMOKE =', SMOKE, '| modelo:', RUTA_MODELO.name)
@@ -121,20 +125,23 @@ Leemos los nombres desde `lista.csv` (siempre en el mismo orden), así cada foto
 """)
 
 code("""
-lista = pd.read_csv(CARPETA / 'lista.csv')
+lista = pd.read_csv(CARPETA / 'lista.csv')   # tabla: split, archivo, clase, foto original y tipo de máscara
 if SMOKE:   # prueba: unas pocas fotos de cada clase
     lista = pd.concat([lista[lista['split'] == 'test'],
                        lista[lista['split'] != 'test'].groupby(['split', 'clase']).head(10)])
 
 
+# Lee las fotos y máscaras de un split. Usa UNA sola lista de nombres ordenada,
+# así cada foto queda con SU máscara (tienen el mismo nombre de archivo).
 def cargar(split, carpeta_mascaras='masks'):
     nombres = sorted(lista.loc[lista['split'] == split, 'archivo'])
-    X = np.asarray([imread(CARPETA / split / 'images' / n) for n in nombres], dtype=np.uint8)
+    X = np.asarray([imread(CARPETA / split / 'images' / n) for n in nombres], dtype=np.uint8)   # fotos: (N, 160, 160, 3)
     Y = np.asarray([imread(CARPETA / split / carpeta_mascaras / n) for n in nombres])
     Y = (Y > 127).astype(np.float32)[..., None]      # (N, 160, 160, 1) con 0 y 1
     return X, Y, nombres
 
 
+# train = aprender | val = decidir cuándo cortar | test = examen final (máscaras a mano)
 X_train, Y_train, nombres_train = cargar('train')
 X_val, Y_val, _ = cargar('val')
 X_test, Y_test, nombres_test = cargar('test')                    # NO se usa para entrenar
@@ -145,6 +152,7 @@ for nombre, X, Y in [('train', X_train, Y_train), ('val', X_val, Y_val), ('test'
 """)
 
 code("""
+# Muestra 5 fotos de train con su máscara (lo que la red tiene que aprender)
 fig, ax = plt.subplots(2, 5, figsize=(20, 8))
 for i in range(5):
     k = i * len(X_train) // 5
@@ -168,9 +176,12 @@ el impacto puro del **Transfer Learning (`MobileNetV2` preentrenado)** en el cod
 """)
 
 code("""
+# Balanceo: algunas fotos se repiten en train para que la red las vea más veces:
+# - mancha_bacteriana x4 (tiene muy pocas fotos)
+# - fotos difíciles corregidas a mano por Tato x3
 clase_de = dict(zip(lista['archivo'], lista['clase']))
 origen_de = dict(zip(lista['archivo'], lista['mascara']))
-idx_extra = []
+idx_extra = []   # índices de las fotos a repetir
 for i, n in enumerate(nombres_train):
     rep = 1
     if clase_de[n] == 'mancha_bacteriana':
@@ -179,6 +190,7 @@ for i, n in enumerate(nombres_train):
         rep = max(rep, FACTOR_MANUAL_TRAIN)
     if rep > 1:
         idx_extra.extend([i] * (rep - 1))
+# Train balanceado = train original + las copias extra
 X_train_bal = np.concatenate([X_train, X_train[idx_extra]], axis=0) if idx_extra else X_train
 Y_train_bal = np.concatenate([Y_train, Y_train[idx_extra]], axis=0) if idx_extra else Y_train
 assert len(X_train_bal) == len(Y_train_bal)
@@ -187,8 +199,11 @@ print(f'Train balanceado: {len(X_train)} -> {len(X_train_bal)} fotos '
       f'(+{len(idx_extra)} copias; incluye {n_man} máscaras manuales de train)')
 
 
+# Aumentación: cada vez que la red ve una foto, la cambia un poco al azar.
+# Espejar y rotar se aplica IGUAL a la foto y a la máscara (si no, dejarían de coincidir).
+# Brillo, contraste y saturación solo a la foto (la máscara no tiene color).
 def aumentar(foto, mascara):
-    foto = tf.cast(foto, tf.float32) / 255.0
+    foto = tf.cast(foto, tf.float32) / 255.0   # pasa a 0..1 para poder cambiar el brillo
 
     flip_h = tf.random.uniform(()) > 0.5
     foto = tf.cond(flip_h, lambda: tf.image.flip_left_right(foto), lambda: foto)
@@ -196,7 +211,7 @@ def aumentar(foto, mascara):
     flip_v = tf.random.uniform(()) > 0.5
     foto = tf.cond(flip_v, lambda: tf.image.flip_up_down(foto), lambda: foto)
     mascara = tf.cond(flip_v, lambda: tf.image.flip_up_down(mascara), lambda: mascara)
-    k = tf.random.uniform((), minval=0, maxval=4, dtype=tf.int32)
+    k = tf.random.uniform((), minval=0, maxval=4, dtype=tf.int32)   # rotar k veces 90° (0, 90, 180 o 270)
     foto = tf.image.rot90(foto, k)
     mascara = tf.image.rot90(mascara, k)
 
@@ -204,10 +219,12 @@ def aumentar(foto, mascara):
     foto = tf.image.random_brightness(foto, max_delta=0.15)
     foto = tf.image.random_contrast(foto, lower=0.85, upper=1.15)
     foto = tf.image.random_saturation(foto, lower=0.75, upper=1.25)
-    foto = tf.clip_by_value(foto, 0.0, 1.0) * 255.0
+    foto = tf.clip_by_value(foto, 0.0, 1.0) * 255.0   # vuelve a 0..255
     return foto, mascara
 
 
+# tf.data arma la cinta de datos: mezcla, aumenta, agrupa de a BATCH y prepara el próximo
+# grupo mientras la GPU entrena. Val no se mezcla ni se aumenta.
 datos_train = (tf.data.Dataset.from_tensor_slices((X_train_bal, Y_train_bal))
                .shuffle(len(X_train_bal), seed=utils.SEED)
                .map(aumentar, num_parallel_calls=tf.data.AUTOTUNE)
@@ -231,6 +248,8 @@ camino de bajada y construimos el decodificador UNet con conexiones de salto:
 """)
 
 code("""
+# Bloque del decodificador: 2 convoluciones 3x3, cada una con BatchNorm (estabiliza) y ReLU.
+# El Dropout del medio apaga neuronas al azar al entrenar, para que no memorice.
 def bloque_dec(x, filtros, drop):
     x = Conv2D(filtros, (3, 3), padding='same', use_bias=False,
                kernel_initializer='he_normal')(x)
@@ -244,6 +263,8 @@ def bloque_dec(x, filtros, drop):
     return x
 
 
+# Arma la UNet: MobileNetV2 baja (achica y entiende la foto) y el decodificador sube
+# (agranda hasta 160x160 y dice qué píxel es hoja). Devuelve el modelo y la base (para congelarla).
 def construir_unet():
     Image_input = Input((LADO, LADO, 3))
     x_norm = Rescaling(1.0 / 127.5, offset=-1.0)(Image_input)   # rango [-1, 1] para MobileNetV2
@@ -258,9 +279,10 @@ def construir_unet():
     base = tf.keras.applications.MobileNetV2(
         input_shape=(LADO, LADO, 3),
         input_tensor=x_norm,
-        include_top=False,
-        weights='imagenet',
+        include_top=False,   # sin la capa final de 1000 clases de ImageNet
+        weights='imagenet',   # con lo que ya aprendió en ImageNet
     )
+    # Salidas intermedias de MobileNetV2 a distintos tamaños: son las conexiones de salto
     s1 = base.get_layer('block_1_expand_relu').output    # 80x80
     s2 = base.get_layer('block_3_expand_relu').output    # 40x40
     s3 = base.get_layer('block_6_expand_relu').output    # 20x20
@@ -268,6 +290,8 @@ def construir_unet():
     cuello = base.get_layer('block_16_project').output   # 5x5
 
     # Decodificador UNet con conexiones de salto
+    # En cada paso: Conv2DTranspose duplica el tamaño, concatenate le pega el salto del mismo
+    # tamaño (el detalle fino de la bajada) y bloque_dec lo procesa.
     x = Conv2DTranspose(256, (2, 2), strides=(2, 2), padding='same')(cuello)
     x = bloque_dec(concatenate([x, s4]), 256, 0.2)       # 10x10
 
@@ -283,7 +307,7 @@ def construir_unet():
     x = Conv2DTranspose(32, (2, 2), strides=(2, 2), padding='same')(x)
     x = bloque_dec(concatenate([x, s0]), 32, 0.1)        # 160x160
 
-    outputs = Conv2D(1, (1, 1), activation='sigmoid')(x)
+    outputs = Conv2D(1, (1, 1), activation='sigmoid')(x)   # 1 canal: probabilidad de hoja (0 a 1) en cada píxel
     return Model(inputs=[Image_input], outputs=[outputs]), base
 """)
 
@@ -301,6 +325,7 @@ El número que vale es el de test (sección 7), contra las corregidas a mano.
 """)
 
 code("""
+# Si ya hay un modelo guardado lo carga; si no, entrena en 2 fases.
 if RUTA_MODELO.exists() and not REENTRENAR:
     print('Cargando el modelo ya entrenado:', RUTA_MODELO.name)
     model = tf.keras.models.load_model(
@@ -311,7 +336,8 @@ else:
 
     # Fase 1: encoder congelado
     for capa in base.layers:
-        capa.trainable = False
+        capa.trainable = False   # congela todo MobileNetV2
+    # loss: BCE (píxel a píxel) + Dice (cuánto se superponen las máscaras); métrica: IoU de la hoja
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=LR_F1),
         loss=utils.bce_dice_loss,
@@ -320,14 +346,14 @@ else:
     print(f'--- Fase 1 (encoder congelado, máx {EPOCAS_F1} épocas) ---')
     h1 = model.fit(
         datos_train, validation_data=datos_val, epochs=EPOCAS_F1,
-        callbacks=[tf.keras.callbacks.EarlyStopping(
+        callbacks=[tf.keras.callbacks.EarlyStopping(   # corta si val_loss no mejora en 4 épocas
             monitor='val_loss', patience=4, restore_best_weights=True, verbose=1
         )],
     )
 
     # Fase 2: fine-tuning (descongela el encoder excepto sus BatchNormalization)
     for capa in base.layers:
-        capa.trainable = not isinstance(capa, BatchNormalization)
+        capa.trainable = not isinstance(capa, BatchNormalization)   # descongela todo menos las BatchNorm
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=LR_F2),
         loss=utils.bce_dice_loss,
@@ -337,16 +363,19 @@ else:
     h2 = model.fit(
         datos_train, validation_data=datos_val, epochs=EPOCAS_F2,
         callbacks=[
+            # si se estanca 3 épocas, baja el learning rate a la mitad
             tf.keras.callbacks.ReduceLROnPlateau(
                 monitor='val_loss', factor=0.5, patience=3, min_lr=1e-6, verbose=1
             ),
             tf.keras.callbacks.EarlyStopping(
                 monitor='val_loss', patience=PACIENCIA, restore_best_weights=True, verbose=1
             ),
+            # guarda la mejor época mientras entrena (por si Colab se corta)
             tf.keras.callbacks.ModelCheckpoint(RUTA_MODELO, monitor='val_loss', save_best_only=True),
         ],
     )
 
+    # Guarda la historia (loss e IoU por época) para graficar las curvas
     df1 = pd.DataFrame(h1.history); df1['fase'] = 1
     df2 = pd.DataFrame(h2.history); df2['fase'] = 2
     df_hist = pd.concat([df1, df2], ignore_index=True)
@@ -357,6 +386,7 @@ print(f'{model.count_params():,} parámetros')
 """)
 
 code("""
+# Curvas de entrenamiento; la línea punteada marca el paso de la fase 1 a la fase 2
 ruta_historia = ROOT / 'resultados' / f'{NOMBRE}_historia.csv'
 if ruta_historia.exists():
     h = pd.read_csv(ruta_historia)
@@ -386,14 +416,16 @@ que aprendió.
 """)
 
 code("""
+# IoU = píxeles donde las dos dicen hoja / píxeles donde al menos una dice hoja (1 = perfecto)
 def iou(verdad, prediccion):
     verdad, prediccion = verdad > 0.5, prediccion > 0.5
     union = np.logical_or(verdad, prediccion).sum()
     return np.logical_and(verdad, prediccion).sum() / union if union else 1.0
 
 
-P_test = model.predict(X_test, batch_size=BATCH, verbose=0)
+P_test = model.predict(X_test, batch_size=BATCH, verbose=0)   # probabilidad de hoja en las 50 fotos
 clase_de = dict(zip(lista['archivo'], lista['clase']))
+# Una fila por foto: IoU de la UNet y del truco automático contra la máscara a mano
 res = pd.DataFrame({
     'archivo': nombres_test,
     'clase': [clase_de[n] for n in nombres_test],
@@ -402,6 +434,7 @@ res = pd.DataFrame({
 })
 res.to_csv(ROOT / 'resultados' / f'{NOMBRE}_iou_test.csv', index=False)
 
+# Promedio por clase y general
 tabla = res.groupby('clase')[['iou_unet', 'iou_truco']].mean()
 tabla.loc['PROMEDIO'] = res[['iou_unet', 'iou_truco']].mean()
 tabla.columns = ['UNet', 'Truco automático']
@@ -411,7 +444,7 @@ print('\\nFotos donde la UNet le gana al truco:', (res['iou_unet'] > res['iou_tr
 
 code("""
 fig, ax = plt.subplots(figsize=(12, 6))
-tabla.drop('PROMEDIO').plot.bar(ax=ax, rot=0)
+tabla.drop('PROMEDIO').plot.bar(ax=ax, rot=0)   # gráfico de barras por clase
 ax.set_ylim(0, 1); ax.set_ylabel('IoU promedio (test)'); ax.set_xlabel('')
 ax.set_title('UNet vs truco automático (50 fotos de test)')
 ax.legend(loc='lower right')
@@ -449,6 +482,7 @@ def predecir_tta(X):
     return suma / 8                                          # promedio de las 8 máscaras
 
 
+# Comparamos en val: sin TTA y con TTA
 P_val = model.predict(X_val, batch_size=BATCH, verbose=0)
 P_val_tta = predecir_tta(X_val)
 iou_val = np.mean([iou(Y_val[i], P_val[i]) for i in range(len(X_val))])
@@ -457,6 +491,7 @@ print(f'Val  ->  UNet: {iou_val:.3f}   UNet + TTA: {iou_val_tta:.3f}')
 """)
 
 code("""
+# Lo mismo en test, por clase
 P_test_tta = predecir_tta(X_test)
 res['iou_tta'] = [iou(Y_test[i], P_test_tta[i]) for i in range(len(X_test))]
 
@@ -500,6 +535,7 @@ def iou_promedio(Y, P, umbral, con_limpieza):
     return np.mean(valores)
 
 
+# Probamos 5 umbrales, con y sin limpieza, y nos quedamos con el mejor en val
 filas = []
 for umbral in [0.3, 0.4, 0.5, 0.6, 0.7]:
     for con_limpieza in [False, True]:
@@ -514,6 +550,7 @@ print(f'\\nMejor en val: umbral {UMBRAL}, limpiar = {LIMPIAR}')
 """)
 
 code("""
+# En test: (1) solo limpieza con umbral 0.5 y (2) la combinación elegida en val
 def mascara_final(p, umbral, con_limpieza):
     m = p[:, :, 0] > umbral
     return limpiar(m) if con_limpieza else m
@@ -540,6 +577,7 @@ code("""
 import cv2
 
 
+# Dibuja sobre la foto el borde de la máscara a mano (verde) y el de la UNet (rojo)
 def contornos(foto, verdad, prediccion):
     img = foto.copy()
     for mascara, color in [(verdad, (0, 255, 0)), (prediccion, (255, 0, 0))]:
@@ -549,6 +587,7 @@ def contornos(foto, verdad, prediccion):
     return img
 
 
+# Elige las 4 fotos con mejor IoU y las 4 con peor
 orden = res.sort_values('iou_unet').index
 elegidas = list(orden[-4:][::-1]) + list(orden[:4])
 fig, ax = plt.subplots(2, 4, figsize=(20, 11))

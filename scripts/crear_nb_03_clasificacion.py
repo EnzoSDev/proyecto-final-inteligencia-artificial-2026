@@ -47,13 +47,15 @@ en `/content`. En la compu local usa la carpeta del proyecto.
 
 code("""
 import sys
-EN_COLAB = 'google.colab' in sys.modules
+EN_COLAB = 'google.colab' in sys.modules   # True si estamos en Google Colab
 if EN_COLAB:
     from google.colab import drive
-    drive.mount('/content/drive')
-    sys.path.insert(0, '/content/drive/MyDrive/Proyecto_Final_IA')
+    drive.mount('/content/drive')   # conecta Google Drive (pide permiso)
+    sys.path.insert(0, '/content/drive/MyDrive/Proyecto_Final_IA')   # así Python encuentra utils.py
 
 import utils
+# Prepara los datos: en Colab copia dataset/ y descomprime datos/dataset_segmentado.zip en /content.
+# ROOT = dónde se guardan modelos y figuras (Drive en Colab); DATA = de dónde se leen las fotos.
 entorno = utils.configurar_entorno(['dataset', 'datos/dataset_segmentado'])
 ROOT, DATA = entorno['ROOT'], entorno['DATA']
 """)
@@ -65,6 +67,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import tensorflow as tf
+# sklearn: métricas, división en folds por grupos y pesos de clase
+# keras: las capas para armar el clasificador
 from sklearn.metrics import (accuracy_score, classification_report,
                              confusion_matrix, f1_score)
 from sklearn.model_selection import StratifiedGroupKFold
@@ -73,8 +77,8 @@ from tensorflow.keras.layers import (BatchNormalization, Dense, Dropout,
                                      GlobalAveragePooling2D, Input, Rescaling)
 from tensorflow.keras.models import Model
 
-utils.set_estilo()
-tf.keras.utils.set_random_seed(utils.SEED)
+utils.set_estilo()   # letra grande en los gráficos (van a la presentación)
+tf.keras.utils.set_random_seed(utils.SEED)   # mismos resultados cada vez que se corre
 """)
 
 md("""
@@ -85,27 +89,28 @@ md("""
 """)
 
 code("""
-SMOKE = os.environ.get('SMOKE') == '1'
-REENTRENAR = os.environ.get('REENTRENAR') == '1'
+SMOKE = os.environ.get('SMOKE') == '1'   # prueba rápida en la compu
+REENTRENAR = os.environ.get('REENTRENAR') == '1'   # 1 = entrena aunque ya haya modelos guardados
 
-N_FOLDS = 2 if SMOKE else 5
+N_FOLDS = 2 if SMOKE else 5   # validación cruzada en 5 partes
 EPOCAS_F1 = 1 if SMOKE else 10    # Fase 1: MobileNetV2 congelada (entrena la cabeza)
 EPOCAS_F2 = 1 if SMOKE else 20    # Fase 2: fine-tuning de las últimas capas
 CAPAS_FINETUNE = 35               # últimas capas de MobileNetV2 a descongelar (sin BN)
-LR_F1 = 1e-3
-LR_F2 = 1e-4
+LR_F1 = 1e-3   # learning rate de la fase 1
+LR_F2 = 1e-4   # learning rate de la fase 2 (10 veces más chico)
 LABEL_SMOOTHING = 0.05            # evita sobreconfianza extrema fuera de dominio
 FONDO_B = 128                     # gris neutro -> entra como 0.0 en MobileNetV2 [-1, +1]
 BATCH = utils.BATCH               # 32
 LADO = utils.IMG_CLF              # 224
 
-SUFIJO = '_smoke' if SMOKE else ''
+SUFIJO = '_smoke' if SMOKE else ''   # las pruebas no pisan los archivos reales
 DIR_MOD = ROOT / 'models'
 DIR_RES = ROOT / 'resultados'
 DIR_MOD.mkdir(exist_ok=True)
 DIR_RES.mkdir(exist_ok=True)
 
 RUTA_CV = DIR_RES / f'clf_cv_folds{SUFIJO}.csv'
+# Un archivo de modelo por fold: clasificador_A_fold1.keras ... fold5 (y lo mismo para B)
 RUTAS_A = [DIR_MOD / f'clasificador_A_fold{k}{SUFIJO}.keras' for k in range(1, N_FOLDS + 1)]
 RUTAS_B = [DIR_MOD / f'clasificador_B_fold{k}{SUFIJO}.keras' for k in range(1, N_FOLDS + 1)]
 print(f'SMOKE={SMOKE} | REENTRENAR={REENTRENAR} | folds={N_FOLDS} | fases={EPOCAS_F1}+{EPOCAS_F2} épocas | lado={LADO}')
@@ -121,18 +126,21 @@ md("""
 """)
 
 code("""
-df = utils.cargar_splits()
-df_cv = utils.quitar_copias_de_test(df)
-df_test = df[df['split'] == 'test'].reset_index(drop=True)
+df = utils.cargar_splits()   # las 2393 fotos con su split (train/val/test)
+df_cv = utils.quitar_copias_de_test(df)   # train+val sin las copias de fotos de test (1934)
+df_test = df[df['split'] == 'test'].reset_index(drop=True)   # test fijo (359), solo para el examen final
 
 if SMOKE:
     df_cv = df_cv.groupby('clase', group_keys=False).head(10).reset_index(drop=True)
     df_test = df_test.groupby('clase', group_keys=False).head(6).reset_index(drop=True)
 
+# Grupo = fotos casi iguales entre sí (datos/casi_duplicados.csv).
+# Comprobamos que ningún grupo quede repartido entre CV y test.
 grupos_cv = utils.asignar_grupos(df_cv)
 grupos_test = utils.asignar_grupos(df_test)
 assert not (set(grupos_cv) & set(grupos_test)), 'Fuga de grupos entre CV y test!'
 
+# 5 folds: cada uno mantiene la proporción de clases (Stratified) y no parte grupos (Group)
 sgkf = StratifiedGroupKFold(n_splits=N_FOLDS, shuffle=True, random_state=utils.SEED)
 folds = list(sgkf.split(df_cv, df_cv['label'], grupos_cv))
 for k, (tr, va) in enumerate(folds):
@@ -144,6 +152,8 @@ print(df_cv['clase'].value_counts().reindex(utils.CLASES).to_string())
 """)
 
 code("""
+# A: foto original achicada a 224x224.
+# B: hoja sin fondo, recortada a su cuadro y con fondo gris (utils.recortar_a_hoja).
 def cargar_imagenes(df_sub, modo):
     if modo == 'A':
         X = np.asarray([utils.cargar_imagen(p, LADO, base=DATA) for p in df_sub['path']], dtype=np.uint8)
@@ -199,6 +209,8 @@ md("""
 """)
 
 code("""
+# Aumentación (solo en train): espejar, rotar 90°, zoom suave (recorte del 80 al 100%)
+# y brillo/contraste suaves. No se toca el color para no borrar los síntomas.
 def aumentar(foto, etiqueta):
     foto = tf.cast(foto, tf.float32) / 255.0
     flip_h = tf.random.uniform(()) > 0.5
@@ -207,6 +219,7 @@ def aumentar(foto, etiqueta):
     foto = tf.cond(flip_v, lambda: tf.image.flip_up_down(foto), lambda: foto)
     k = tf.random.uniform((), minval=0, maxval=4, dtype=tf.int32)
     foto = tf.image.rot90(foto, k)
+    # zoom suave: recorta un cuadrado al azar (80-100% del lado) y lo vuelve a 224
     escala = tf.random.uniform((), minval=0.80, maxval=1.0)
     c_tam = tf.cast(tf.round(escala * LADO), tf.int32)
     foto = tf.image.random_crop(foto, size=[c_tam, c_tam, 3])
@@ -217,6 +230,7 @@ def aumentar(foto, etiqueta):
     return foto, etiqueta
 
 
+# Cinta de datos de tf.data: en train mezcla y aumenta; después agrupa de a BATCH
 def armar_dataset(X, y_oh, entrenar=False):
     ds = tf.data.Dataset.from_tensor_slices((X, y_oh))
     if entrenar:
@@ -224,29 +238,34 @@ def armar_dataset(X, y_oh, entrenar=False):
     return ds.batch(BATCH).prefetch(tf.data.AUTOTUNE)
 
 
+# MobileNetV2 sin su capa final + promedio (GAP: embedding de 1280) + Dropout + capa de 4 clases.
+# Se arma sin anidar la base para poder calcular Grad-CAM después.
 def construir_clasificador():
     Image_input = Input((LADO, LADO, 3))
-    x = Rescaling(1.0 / 127.5, offset=-1.0)(Image_input)
+    x = Rescaling(1.0 / 127.5, offset=-1.0)(Image_input)   # píxeles 0..255 -> -1..+1 (el gris 128 queda en 0)
     base = tf.keras.applications.MobileNetV2(
         input_shape=(LADO, LADO, 3),
         input_tensor=x,
-        include_top=False,
-        weights='imagenet',
+        include_top=False,   # sin la capa original de 1000 clases
+        weights='imagenet',   # con lo que aprendió en ImageNet
     )
-    y = GlobalAveragePooling2D()(base.output)
-    y = Dropout(0.3)(y)
-    outputs = Dense(len(utils.CLASES), activation='softmax')(y)
+    y = GlobalAveragePooling2D()(base.output)   # 7x7x1280 -> 1280 números (embedding)
+    y = Dropout(0.3)(y)   # apaga 30% al entrenar para que no memorice
+    outputs = Dense(len(utils.CLASES), activation='softmax')(y)   # 4 neuronas: probabilidad de cada clase
     return Model(inputs=Image_input, outputs=outputs), base
 
 
+# Entrena UN modelo (un fold) en 2 fases y devuelve el modelo y su historia.
 def entrenar_una_vez(X_tr, y_tr, X_va, y_va, seed=utils.SEED, verbose=0):
     tf.keras.utils.set_random_seed(seed)
+    # Pesos de clase: las clases con pocas fotos pesan más; la raíz cuadrada los suaviza
     pesos = np.sqrt(compute_class_weight('balanced', classes=np.arange(len(utils.CLASES)), y=y_tr))
     class_weight = {i: float(p) for i, p in enumerate(pesos)}
 
+    # Etiquetas en formato one-hot: mildiu -> [0, 0, 1, 0]
     y_tr_oh = tf.keras.utils.to_categorical(y_tr, num_classes=len(utils.CLASES))
     y_va_oh = tf.keras.utils.to_categorical(y_va, num_classes=len(utils.CLASES))
-    loss_fn = tf.keras.losses.CategoricalCrossentropy(label_smoothing=LABEL_SMOOTHING)
+    loss_fn = tf.keras.losses.CategoricalCrossentropy(label_smoothing=LABEL_SMOOTHING)   # entropía cruzada para 4 clases, con label smoothing
 
     ds_tr = armar_dataset(X_tr, y_tr_oh, entrenar=True)
     ds_va = armar_dataset(X_va, y_va_oh, entrenar=False)
@@ -255,7 +274,7 @@ def entrenar_una_vez(X_tr, y_tr, X_va, y_va, seed=utils.SEED, verbose=0):
 
     # Fase 1: backbone congelado
     for capa in base.layers:
-        capa.trainable = False
+        capa.trainable = False   # MobileNetV2 congelada: solo aprende la capa nueva
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=LR_F1),
         loss=loss_fn,
@@ -270,8 +289,8 @@ def entrenar_una_vez(X_tr, y_tr, X_va, y_va, seed=utils.SEED, verbose=0):
     )
 
     # Fase 2: fine-tuning de las últimas capas (sin tocar BatchNormalization)
-    for capa in base.layers[-CAPAS_FINETUNE:]:
-        capa.trainable = not isinstance(capa, BatchNormalization)
+    for capa in base.layers[-CAPAS_FINETUNE:]:   # las últimas 35 capas
+        capa.trainable = not isinstance(capa, BatchNormalization)   # se descongelan, menos las BatchNorm
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=LR_F2),
         loss=loss_fn,
@@ -280,6 +299,7 @@ def entrenar_una_vez(X_tr, y_tr, X_va, y_va, seed=utils.SEED, verbose=0):
     h2 = model.fit(
         ds_tr, validation_data=ds_va, epochs=EPOCAS_F2, class_weight=class_weight,
         callbacks=[
+            # si val_loss se estanca 2 épocas, baja el learning rate a la mitad
             tf.keras.callbacks.ReduceLROnPlateau(
                 monitor='val_loss', factor=0.5, patience=2, min_lr=1e-6, verbose=0
             ),
@@ -290,6 +310,7 @@ def entrenar_una_vez(X_tr, y_tr, X_va, y_va, seed=utils.SEED, verbose=0):
         verbose=verbose,
     )
 
+    # Historia de las 2 fases (loss y accuracy por época)
     df1 = pd.DataFrame(h1.history); df1['fase'] = 1
     df2 = pd.DataFrame(h2.history); df2['fase'] = 2
     return model, pd.concat([df1, df2], ignore_index=True)
@@ -303,6 +324,8 @@ Entrenamos **A** y **B** sobre exactamente los mismos 5 folds, guardamos cada un
 """)
 
 code("""
+# Si ya están los resultados y los 10 modelos, los carga. Si no, recorre A y B y los 5 folds:
+# usa el modelo guardado de ese fold (o lo entrena) y lo evalúa en su parte de validación.
 todos_guardados = RUTA_CV.exists() and all(r.exists() for r in RUTAS_A + RUTAS_B)
 if todos_guardados and not REENTRENAR:
     print('Cargando resultados de validación cruzada ya guardados:', RUTA_CV.name)
@@ -325,15 +348,17 @@ else:
                 modelo_k.save(ruta_k)
                 if k == 0:
                     hist_k.to_csv(DIR_RES / f'clf_{clave}_historia{SUFIJO}.csv', index_label='epoca')
+            # Predice la validación del fold: la clase elegida es la de mayor probabilidad
             preds = np.argmax(modelo_k.predict(X_cv[va], batch_size=BATCH, verbose=0), axis=1)
             acc = accuracy_score(y_cv[va], preds)
             mf1 = f1_score(y_cv[va], preds, average='macro')
             print(f'  Fold {k + 1}/{N_FOLDS} -> accuracy={acc:.4f}  macro_f1={mf1:.4f}  ({ruta_k.name})')
             filas.append({'modelo': modo, 'fold': k + 1, 'accuracy': acc, 'macro_f1': mf1})
-            tf.keras.backend.clear_session()
+            tf.keras.backend.clear_session()   # libera memoria entre modelos
     res_cv = pd.DataFrame(filas)
     res_cv.to_csv(RUTA_CV, index=False)
 
+# Promedio y desvío de los 5 folds
 resumen_cv = res_cv.groupby('modelo')[['macro_f1', 'accuracy']].agg(['mean', 'std'])
 print('\\nResumen 5-fold (promedio ± desvío):')
 for modo in ['A_con_fondo', 'B_sin_fondo']:
@@ -344,6 +369,7 @@ for modo in ['A_con_fondo', 'B_sin_fondo']:
 
 code("""
 fig, ax = plt.subplots(figsize=(10, 6))
+# Gráfico de barras: promedio ± desvío de A y B
 etiquetas = ['Macro-F1', 'Accuracy']
 x = np.arange(len(etiquetas))
 w = 0.34
@@ -372,6 +398,7 @@ las **359 fotos de test**.
 """)
 
 code("""
+# Carga los 5 modelos de cada rama (A y B) para usarlos juntos (ensamble)
 modelos = {
     'A': [tf.keras.models.load_model(r, compile=False) for r in RUTAS_A],
     'B': [tf.keras.models.load_model(r, compile=False) for r in RUTAS_B],
@@ -389,11 +416,13 @@ print(f'Ensamble 5-fold (sin TTA) -> A: acc={accuracy_score(y_test, probs_A_sin.
       f'B: acc={accuracy_score(y_test, probs_B_sin.argmax(1)):.4f} '
       f'mf1={f1_score(y_test, probs_B_sin.argmax(1), average="macro"):.4f}')
 
+# Versión oficial: 5 modelos x 4 posiciones (TTA) = 20 predicciones promediadas por foto
 probs_A = utils.predecir_ensamble(modelos['A'], X_test_A, tta=True, batch_size=BATCH)
 probs_B = utils.predecir_ensamble(modelos['B'], X_test_B, tta=True, batch_size=BATCH)
-pred_A = np.argmax(probs_A, axis=1)
+pred_A = np.argmax(probs_A, axis=1)   # clase elegida = la de mayor probabilidad
 pred_B = np.argmax(probs_B, axis=1)
 
+# Guarda la predicción de cada foto de test (para revisar los errores)
 pd.DataFrame({
     'path': df_test['path'],
     'real': df_test['clase'],
@@ -403,6 +432,7 @@ pd.DataFrame({
     'conf_B': probs_B.max(axis=1),
 }).to_csv(DIR_RES / f'clf_test_preds{SUFIJO}.csv', index=False)
 
+# Métricas de test: accuracy, Macro-F1 y F1 por clase
 metricas_test = []
 for nombre, pred in [('A_con_fondo', pred_A), ('B_sin_fondo', pred_B)]:
     acc = accuracy_score(y_test, pred)
@@ -460,6 +490,7 @@ en la predicción; azul = zona ignorada.
 """)
 
 code("""
+# Elige 1 foto de test por clase, preferentemente una donde A y B no coinciden
 elegidas = []
 for c_idx in range(len(utils.CLASES)):
     idxs = np.where(y_test == c_idx)[0]
@@ -470,6 +501,7 @@ fig, ax = plt.subplots(len(elegidas), 4, figsize=(20, 5 * len(elegidas)))
 titulos_col = ['Foto A (con fondo)', 'Grad-CAM A', 'Foto B (sin fondo)', 'Grad-CAM B']
 for fila, idx in enumerate(elegidas):
     real = utils.CLASES[y_test[idx]]
+    # Grad-CAM promediado de los 5 modelos y llevado a 0..1 (rojo = lo que más pesó)
     mA = np.mean([utils.grad_cam(m, X_test_A[idx], clase_idx=int(pred_A[idx])) for m in modelos['A']], axis=0)
     mB = np.mean([utils.grad_cam(m, X_test_B[idx], clase_idx=int(pred_B[idx])) for m in modelos['B']], axis=0)
     mA = mA / mA.max() if mA.max() > 0 else mA
