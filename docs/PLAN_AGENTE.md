@@ -67,7 +67,7 @@ utils.py
 01_mascaras.ipynb
 02_unet_segmentacion.ipynb
 03_clasificacion.ipynb
-app/app.py                    (interfaz Gradio local)
+app/app.py                    (interfaz Gradio local; B con utils.recortar_a_hoja(..., min_area=0): sin la regla del 15%, igual que el notebook 03 — decisión de Enzo 2026-11-26)
 app/ejemplos/                 4 fotos de test, 1 por clase
 docs/referencias/             notebooks de referencia (unet_original.ipynb, unet_pruebas_enzo.ipynb, unet_simple_enzo.ipynb); no son parte del informe
 datos/                        todo lo derivado de dataset/ (utils.DATOS; máscaras en utils.MASKS)

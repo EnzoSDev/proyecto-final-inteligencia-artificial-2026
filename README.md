@@ -119,8 +119,8 @@ corresponden al ingeniero agrónomo."*
 
 **Qué hace la app con cada foto:**
 1. **UNet** (`unet.keras`): calcula la máscara de la hoja y la limpia (se queda con la mancha más grande y rellena agujeros, porque hay una sola hoja por foto).
-2. **Recorte:** borra el fondo con la misma función del notebook.
-3. **CNN** (`clf_B.keras`): calcula las probabilidades de cada clase.
+2. **Recorte:** recorta la hoja sobre fondo gris, con la misma función del notebook 03 (`utils.recortar_a_hoja`).
+3. **CNN** (los 5 modelos B, `clasificador_B_fold1..5.keras`): cada uno predice en 4 posiciones y se promedia (`utils.predecir_ensamble`).
 4. **Grad-CAM:** arma el mapa de calor.
 5. **Gradio:** muestra todo en una página web.
 
@@ -129,12 +129,12 @@ corresponden al ingeniero agrónomo."*
 El notebook y la app usan **las mismas funciones** (están en `utils.py`). Así la app da exactamente los mismos resultados que medimos en el notebook.
 
 **Para abrirla:**
-1. Bajar los modelos de la carpeta de Drive a `models/`: `unet.keras`, `clf_A.keras` y `clf_B.keras`.
+1. Tener los modelos en `models/`: `unet.keras`, `clasificador_A_fold1..5.keras` y `clasificador_B_fold1..5.keras` (no van a git; se pasan por Drive).
 2. Correr:
 
        python app/app.py
 
-3. Abrir en el navegador: `http://localhost:7860`
+3. Abrir en el navegador: `http://127.0.0.1:7860` (al arrancar tarda un rato en cargar los modelos)
 
 No necesita internet ni placa de video.
 
@@ -206,7 +206,7 @@ Los notebooks están en la raíz para que `import utils` funcione igual en la co
 | `avances/` | Registro de todo lo que hacemos, día por día | Sí |
 | `exposicion/` | Material del oral: explicaciones y la presentación (`presentacion/index.html`) | Sí |
 | `figuras/`, `models/`, `resultados/` | Salidas de los notebooks | No, se generan |
-| `app/` | La aplicación de demo (Gradio) *(pendiente: se crea cuando la armemos)* | Sí |
+| `app/` | La aplicación de demo (Gradio): `python app/app.py` | Sí |
 | `.venv/` | Entorno virtual de Python (oculto) | No |
 
 **Adentro de `datos/`:**
